@@ -414,7 +414,7 @@ function App() {
           <div className="player-list">
             {(registrationOpen ? rankedOpenPlayers : selectedPlayers).map((player, index) => (
               <div className="player-row" key={player.id}>
-                <span className="player-number">{String(registrationOpen ? (player.selectionRank ?? index + 1) : index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
+                <span className="player-number">{registrationOpen && index > 0 && player.selectionRank != null && player.selectionRank === rankedOpenPlayers[index - 1]?.selectionRank ? '—' : String(registrationOpen ? (player.selectionRank ?? index + 1) : index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
