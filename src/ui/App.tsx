@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 
 type Player = { id: string; first: string; last: string; attended: number; missed: number; registered: boolean }
 type Profile = { id: string; first_name: string; last_name: string; status: 'pending' | 'approved' | 'rejected'; role: 'player' | 'manager' }
-type ManagerMatch = { id: string; week_start: string; players: Array<Player & { result: string }> }
+type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string }> }
 
 const initialPlayers: Player[] = [
   { id: 'demo-1', first: 'איתי', last: 'כהן', attended: 2, missed: 0, registered: true },
@@ -105,7 +105,7 @@ function App() {
         .select('player_id, result, selection_rank').eq('match_id', match.id).is('cancelled_at', null)
       if (!active) return
       if (entriesError || !entries) return
-      setRegistered(entries.some((entry) => entry.player_id === user.id))
+      setRegistered(entries.some((entry) => entry.player_id === user!.id))
       const visibleEntries = openWeek ? entries : entries.filter((entry) => entry.selection_rank !== null)
       const ids = visibleEntries.map((entry) => entry.player_id)
       if (!ids.length) {
@@ -144,7 +144,7 @@ function App() {
     async function loadManagerBoard() {
       const [pendingResponse, matchesResponse] = await Promise.all([
         supabase!.from('profiles').select('id, first_name, last_name, status, role').eq('status', 'pending').order('created_at'),
-        supabase!.from('matches').select('id, week_start, status').in('status', ['selected', 'completed']).order('week_start', { ascending: false }).limit(4),
+        supabase!.from('matches').select('id, week_start, status').in('status', ['signup', 'selected', 'completed']).order('week_start', { ascending: false }).limit(4),
       ])
       if (!active) return
       setPendingMembers((pendingResponse.data ?? []) as Profile[])
@@ -161,6 +161,7 @@ function App() {
       setManagerMatches(matches.map((match) => ({
         id: match.id,
         week_start: match.week_start,
+        status: match.status,
         players: (entries ?? []).filter((entry) => entry.match_id === match.id).flatMap((entry) => {
           const name = nameMap.get(entry.player_id)
           return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, missed: 0, registered: true, result: entry.result }] : []
@@ -237,6 +238,13 @@ function App() {
     else { setNotice('הנוכחות נשמרה.'); setRefreshKey((value) => value + 1) }
   }
 
+  async function finalizeMatch(weekStart: string) {
+    if (!supabase) return
+    const { error } = await supabase.rpc('finalize_weekly_signup', { p_week: weekStart })
+    if (error) setNotice(error.message.includes('Signup is still open') ? 'ההרשמה עדיין פתוחה.' : 'לא הצלחנו לבצע את בחירת השחקנים.')
+    else { setNotice('הרכב המשחק נבחר.'); setRefreshKey((value) => value + 1) }
+  }
+
   const userIsRegistered = live ? Boolean(user && registered) : registered
   const canSignUp = !live || (user !== null && profile?.status === 'approved' && registrationOpen)
 
@@ -251,7 +259,9 @@ function App() {
         <div className="top-actions">
           {profile?.role === 'manager' && profile.status === 'approved' && <button className="button button-quiet manager-toggle" onClick={() => setShowManager((open) => !open)}>{showManager ? 'עמוד ההרשמה' : 'לוח מנהל'}</button>}
           {user ? <button className="button button-quiet desktop-join" onClick={signOut}>התנתקות</button> : <button className="button button-quiet desktop-join" onClick={() => openAuth('join')}>הצטרפות למועדון</button>}
-          <button className="mobile-menu" aria-label="פתיחת טופס הצטרפות" onClick={() => openAuth(user ? 'login' : 'join')}><span /><span /></button>
+          {user
+            ? <button className="button button-quiet mobile-menu" aria-label="התנתקות" onClick={signOut}>יציאה</button>
+            : <button className="button button-quiet mobile-menu" aria-label="הצטרפות למועדון" onClick={() => openAuth('join')}>הצטרפות</button>}
         </div>
       </header>
 
@@ -266,8 +276,8 @@ function App() {
               <div className="meta-item"><span className="meta-icon">⌖</span><span><small>מיקום המשחק</small><strong>המגרש הקבוע</strong></span></div>
             </div>
             <div className="hero-actions">
-              <button className={`button button-primary ${userIsRegistered ? 'button-registered' : ''}`} onClick={() => { if (canSignUp) void toggleSignup(); else if (live && !user) openAuth('login'); else setNotice(profile?.status === 'pending' ? 'בקשת ההצטרפות ממתינה לאישור מנהל.' : 'ההרשמה נסגרה.') }} disabled={busy}>
-                {busy ? 'שומרים…' : live && !user ? 'התחברות להרשמה' : live && profile?.status === 'pending' ? 'ממתין לאישור מנהל' : live && !registrationOpen ? 'ההרשמה נסגרה' : userIsRegistered ? '✓  נרשמת למשחק' : 'הרשמה למשחק'}
+              <button className={`button button-primary ${userIsRegistered ? 'button-registered' : ''}`} onClick={() => { if (canSignUp) void toggleSignup(); else if (live && !user) openAuth('login'); else setNotice(profile?.status === 'pending' ? 'בקשת ההצטרפות ממתינה לאישור מנהל.' : profile?.status === 'rejected' ? 'בקשת ההצטרפות נדחתה. פנו למנהל המועדון.' : 'ההרשמה נסגרה.') }} disabled={busy}>
+                {busy ? 'שומרים…' : live && !user ? 'התחברות להרשמה' : live && profile?.status === 'pending' ? 'ממתין לאישור מנהל' : live && profile?.status === 'rejected' ? 'הבקשה נדחתה' : live && !registrationOpen ? 'ההרשמה נסגרה' : userIsRegistered ? '✓  נרשמת למשחק' : 'הרשמה למשחק'}
               </button>
               {userIsRegistered && registrationOpen && <button className="text-button" onClick={toggleSignup}>ביטול הרשמה</button>}
             </div>
@@ -290,7 +300,7 @@ function App() {
             {players.map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
-                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות ב־8 שבועות</span>
+                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
             ))}
@@ -306,7 +316,7 @@ function App() {
           {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
         </div>
         <div className="manager-section"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים אחרונים</span></div>
-          {managerMatches.map((match) => <div className="attendance-match" key={match.id}><h4>שבוע שמתחיל ב־{new Date(`${match.week_start}T12:00:00`).toLocaleDateString('he-IL')}</h4>{match.players.map((player) => <div className="manager-row" key={player.id}><strong>{player.first} {player.last}</strong>{player.result === 'selected' ? <div className="manager-actions"><button className="approve-button" onClick={() => recordAttendance(match.id, player.id, true)}>הגיע</button><button className="reject-button" onClick={() => recordAttendance(match.id, player.id, false)}>לא הגיע</button></div> : <span className="player-stat">{player.result === 'attended' ? 'הגיע' : 'לא הגיע'}</span>}</div>)}</div>)}
+          {managerMatches.map((match) => <div className="attendance-match" key={match.id}><h4>שבוע שמתחיל ב־{new Date(`${match.week_start}T12:00:00`).toLocaleDateString('he-IL')}</h4>{match.status === 'signup' && <div className="finalize-row"><span>{registrationOpen ? 'ההרשמה עדיין פתוחה' : 'ההרשמה נסגרה; אפשר לבצע בחירה ידנית'}</span>{!registrationOpen && <button className="approve-button" onClick={() => finalizeMatch(match.week_start)}>בחירת 15 שחקנים</button>}</div>}{match.players.map((player) => <div className="manager-row" key={player.id}><strong>{player.first} {player.last}</strong>{player.result === 'selected' ? <div className="manager-actions"><button className="approve-button" onClick={() => recordAttendance(match.id, player.id, true)}>הגיע</button><button className="reject-button" onClick={() => recordAttendance(match.id, player.id, false)}>לא הגיע</button></div> : <span className="player-stat">{player.result === 'attended' ? 'הגיע' : 'לא הגיע'}</span>}</div>)}</div>)}
           {!managerMatches.length && <p className="empty-list">לא נמצאו משחקים שממתינים לעדכון נוכחות.</p>}
         </div>
       </section>}

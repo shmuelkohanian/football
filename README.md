@@ -20,6 +20,6 @@ The first manager account must be promoted through the trusted Supabase SQL edit
 
 ## Deployment
 
-Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as Cloudflare Worker secrets, then run `npm run deploy`. The scheduled Worker calls the finalization function hourly; the database only selects players on Monday between 08:00 and 09:00 in `Asia/Jerusalem`.
+Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` as Cloudflare Worker variables/secrets, then run `npm run deploy`. The scheduled Worker calls the finalization function hourly; the database only selects players on Monday between 08:00 and 09:00 in `Asia/Jerusalem`.
 
 The initial interface includes the signup, account request, login, manager approval, and attendance flows. Configure Supabase before inviting players.

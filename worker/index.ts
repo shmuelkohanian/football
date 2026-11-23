@@ -1,7 +1,7 @@
 interface Env {
   ASSETS: Fetcher
   SUPABASE_URL: string
-  SUPABASE_SERVICE_ROLE_KEY: string
+  SUPABASE_SECRET_KEY: string
 }
 
 interface ScheduledController {
@@ -18,8 +18,7 @@ export default {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/finalize_due_signup`, {
       method: 'POST',
       headers: {
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: env.SUPABASE_SECRET_KEY,
         'Content-Type': 'application/json',
       },
       body: '{}',

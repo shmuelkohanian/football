@@ -2,6 +2,7 @@
 -- Apply through the Supabase SQL editor or Supabase CLI migrations.
 
 create extension if not exists pgcrypto;
+create schema if not exists private;
 
 create type public.member_status as enum ('pending', 'approved', 'rejected');
 create type public.member_role as enum ('player', 'manager');
@@ -163,7 +164,7 @@ $$;
 
 -- Managers call this after the Sunday-to-Monday signup window. Selection uses
 -- only the eight most recent completed matches and records the lottery order.
-create function public.finalize_weekly_signup(p_week date)
+create function private.finalize_weekly_signup_internal(p_week date)
 returns table (selected_player_id uuid, selected_rank integer)
 language plpgsql
 security definer
@@ -171,10 +172,9 @@ set search_path = ''
 as $$
 declare
   v_match_id uuid;
+  local_now timestamp := timezone('Asia/Jerusalem', now());
+  this_week date := local_now::date - extract(dow from local_now)::integer;
 begin
-  if not public.is_manager() and coalesce(auth.jwt() ->> 'role', '') <> 'service_role' then
-    raise exception 'Manager access required';
-  end if;
   insert into public.matches (week_start, status, signup_closed_at)
   values (p_week, 'signup', now())
   on conflict (week_start) do update set signup_closed_at = coalesce(public.matches.signup_closed_at, now())
@@ -234,6 +234,23 @@ begin
 end;
 $$;
 
+create function public.finalize_weekly_signup(p_week date)
+returns table (selected_player_id uuid, selected_rank integer)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  local_now timestamp := timezone('Asia/Jerusalem', now());
+  this_week date := local_now::date - extract(dow from local_now)::integer;
+begin
+  if not public.is_manager() then raise exception 'Manager access required'; end if;
+  if p_week > this_week then raise exception 'Cannot finalize a future week'; end if;
+  if local_now < (p_week + 1) + time '08:00' then raise exception 'Signup is still open'; end if;
+  return query select * from private.finalize_weekly_signup_internal(p_week);
+end;
+$$;
+
 -- Worker-only entry point. A Cloudflare scheduled Worker calls this hourly;
 -- this function acts only during Monday 08:00-08:59 Israel time.
 create function public.finalize_due_signup()
@@ -246,14 +263,11 @@ declare
   local_now timestamp := timezone('Asia/Jerusalem', now());
   v_week date;
 begin
-  if coalesce(auth.jwt() ->> 'role', '') <> 'service_role' then
-    raise exception 'Service access required';
-  end if;
   if extract(isodow from local_now) <> 1 or local_now::time < time '08:00' or local_now::time >= time '09:00' then
     return;
   end if;
   v_week := local_now::date - 1;
-  return query select * from public.finalize_weekly_signup(v_week);
+  return query select * from private.finalize_weekly_signup_internal(v_week);
 end;
 $$;
 
@@ -305,6 +319,16 @@ alter table public.matches enable row level security;
 alter table public.match_entries enable row level security;
 
 revoke all on public.profiles, public.matches, public.match_entries from anon, authenticated;
+revoke execute on function public.create_pending_profile() from public, anon;
+revoke execute on function private.finalize_weekly_signup_internal(date) from public, anon, authenticated, service_role;
+revoke execute on function public.is_manager() from public, anon;
+revoke execute on function public.signup_week_for_now() from public, anon;
+revoke execute on function public.current_week_start() from public, anon;
+revoke execute on function public.request_approval(uuid, boolean) from public, anon;
+revoke execute on function public.set_weekly_signup(boolean) from public, anon;
+revoke execute on function public.finalize_weekly_signup(date) from public, anon;
+revoke execute on function public.finalize_due_signup() from public, anon;
+revoke execute on function public.record_attendance(uuid, uuid, boolean) from public, anon;
 grant select on public.profiles, public.matches, public.match_entries to authenticated;
 grant select on public.player_recent_stats to authenticated;
 grant execute on function public.is_manager() to authenticated;
