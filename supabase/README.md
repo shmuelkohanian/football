@@ -1,7 +1,7 @@
 # Supabase setup
 
 1. Create a Supabase project and copy its project URL and publishable key into `.env.local`.
-2. Apply migrations `001_initial_schema.sql`, `002_signup_window_0900.sql`, `003_manager_membership_management.sql`, `004_manager_member_actions.sql`, and `005_manual_signup_control.sql` in order in the Supabase SQL editor. Migrations 003–005 add manager controls for member access, role changes, and manual signup opening/closing.
+2. Apply migrations `001_initial_schema.sql`, `002_signup_window_0900.sql`, `003_manager_membership_management.sql`, `004_manager_member_actions.sql`, `005_manual_signup_control.sql`, `006_temporary_signup_limit.sql`, and `007_add_absence_action.sql` in order in the Supabase SQL editor. Migrations 003–005 add manager controls for membership and signup. Migration 006 temporarily limits registration and selection to two players for testing; restore `public.signup_settings.max_signups` to 15 afterward. Migration 007 adds the absence action for the latest closed signup.
 3. Create the first account through the app, then promote it from a trusted SQL Editor session:
 
    ```sql
