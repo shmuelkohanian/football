@@ -308,7 +308,7 @@ function App() {
               </button>
               {userIsRegistered && registrationOpen && <button className="text-button" onClick={toggleSignup}>ביטול הרשמה</button>}
             </div>
-            <p className="timezone-note">{profile?.status === 'pending' ? 'לאחר האישור תוכל להירשם למשחק השבועי.' : 'אפשר להירשם או לבטל עד סגירת ההרשמה'}</p>
+            {(profile?.status === 'pending' || registrationOpen) && <p className="timezone-note">{profile?.status === 'pending' ? 'לאחר האישור תוכל להירשם למשחק השבועי.' : 'אפשר להירשם או לבטל עד סגירת ההרשמה'}</p>}
           </div>
           <div className="hero-art" role="img" aria-label="מגרש כדורגל ירוק בשעת ערב">
             <div className="art-glow" /><div className="field-lines"><span /><span /><span /></div><div className="ball">⚽</div>
