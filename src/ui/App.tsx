@@ -409,17 +409,17 @@ function App() {
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">{signupCapacity}<br />מקומות בהרכב</span></div>
           </div>
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / signupCapacity * 100)}%` }} /></div>
-          <div className="list-heading"><h3>{registrationOpen ? 'נרשמים לשבוע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'ההרכב הסופי ייקבע עם סגירת ההרשמה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
+          <div className="list-heading"><h3>{registrationOpen ? 'העדיפות כרגע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'הדירוג מתעדכן עם כל הרשמה; ההרכב ייקבע בסגירה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
           <div className="player-list">
-            {(registrationOpen ? players : selectedPlayers).map((player, index) => (
+            {selectedPlayers.map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
             ))}
-            {!registrationOpen && additionalPlayers.length > 0 && <div className="player-list-divider"><span>נרשמו ולא נבחרו להרכב</span></div>}
-            {!registrationOpen && additionalPlayers.map((player, index) => (
+            {additionalPlayers.length > 0 && <div className="player-list-divider"><span>{registrationOpen ? 'כרגע מחוץ ל־15 הראשונים · הדירוג עוד יכול להשתנות' : 'נרשמו ולא נבחרו להרכב'}</span></div>}
+            {additionalPlayers.map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(selectedPlayers.length + index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>

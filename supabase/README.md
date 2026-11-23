@@ -1,7 +1,7 @@
 # Supabase setup
 
 1. Create a Supabase project and copy its project URL and publishable key into `.env.local`.
-2. Apply migrations `001_initial_schema.sql` through `008_unlimited_signup_and_attendance.sql` in order in the Supabase SQL editor. Migration 008 removes the temporary registration limit, sets the roster size to 15, ranks every registrant, calculates the ranking as soon as a manager closes signup, and restores manager attendance marking.
+2. Apply migrations `001_initial_schema.sql` through `008_unlimited_signup_and_attendance.sql` in order in the Supabase SQL editor. Migration 008 removes the temporary registration limit, sets the roster size to 15, updates a stable priority ranking whenever someone signs up or cancels, ranks every registrant at close, and restores manager attendance marking.
 3. Create the first account through the app, then promote it from a trusted SQL Editor session:
 
    ```sql
@@ -13,4 +13,4 @@
 4. Set `SUPABASE_URL` and the project's secret API key as Cloudflare Worker variables/secrets. The secret key must never be placed in browser variables or committed to Git. The Worker sends it only as an `apikey` header.
 5. Deploy the Worker. Its hourly trigger asks the database to finalize during Monday 09:00–09:59 in `Asia/Jerusalem`, unless a manager has manually left signup open; the database function is idempotent.
 
-The app uses these schema functions for account registration, unlimited weekly signup, manager approvals, roster selection, and attendance. Every registrant is ranked when signup closes; the first 15 are selected and all remaining registrants appear in priority order. Selected players remain pending until a manager records attendance. Before inviting players, configure the Supabase Auth email settings and the Cloudflare Worker secrets, then deploy the app.
+The app uses these schema functions for account registration, unlimited weekly signup, manager approvals, roster selection, and attendance. The live list shows the current ranking as it changes; when signup closes, the first 15 are selected and all remaining registrants appear in priority order. Selected players remain pending until a manager records attendance. Before inviting players, configure the Supabase Auth email settings and the Cloudflare Worker secrets, then deploy the app.
