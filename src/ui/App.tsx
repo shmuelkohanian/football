@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 
 type Player = { id: string; first: string; last: string; attended: number; missed: number; registered: boolean; selectionRank?: number | null; signupTime?: string }
 type Profile = { id: string; first_name: string; last_name: string; status: 'pending' | 'approved' | 'rejected'; role: 'player' | 'manager' }
-type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string }> }
+type AttendanceStatus = 'attended' | 'no_show' | 'excused'
+type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string; attendanceStatus: AttendanceStatus | null }> }
 
 function formatWeekDate(week: string | null, offsetDays = 0) {
   if (!week) return ''
@@ -222,7 +223,7 @@ function App() {
       const matches = matchesResponse.data ?? []
       const ids = matches.map((match) => match.id)
       if (!ids.length) { setManagerMatches([]); return }
-      const { data: entries } = await supabase!.from('match_entries').select('match_id, player_id, result, selection_rank').in('match_id', ids).not('selection_rank', 'is', null).lte('selection_rank', signupCapacity).order('selection_rank')
+      const { data: entries } = await supabase!.from('match_entries').select('match_id, player_id, result, selection_rank, attendance_status').in('match_id', ids).is('cancelled_at', null).not('selection_rank', 'is', null).order('selection_rank')
       const playerIds = [...new Set((entries ?? []).map((entry) => entry.player_id))]
       const { data: names } = playerIds.length
         ? await supabase!.from('profiles').select('id, first_name, last_name').in('id', playerIds)
@@ -235,7 +236,9 @@ function App() {
         status: match.status,
         players: (entries ?? []).filter((entry) => entry.match_id === match.id).flatMap((entry) => {
           const name = nameMap.get(entry.player_id)
-          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, missed: 0, registered: true, result: entry.result }] : []
+          const savedStatus = entry.attendance_status as AttendanceStatus | null
+          const legacyStatus = entry.result === 'attended' || entry.result === 'no_show' ? entry.result as AttendanceStatus : null
+          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, missed: 0, registered: true, result: entry.result, attendanceStatus: savedStatus ?? legacyStatus }] : []
         }),
       })))
     }
@@ -344,13 +347,22 @@ function App() {
     else { setOpenMemberMenuId(null); setNotice(`ההיעדרות של ${member.first_name} ${member.last_name} נשמרה להרשמה האחרונה שנסגרה.`); setRefreshKey((value) => value + 1) }
   }
 
-  async function updateAttendance(match: ManagerMatch, player: ManagerMatch['players'][number], attended: boolean) {
-    if (!supabase) return
+  function markAttendance(matchId: string, playerId: string, attendanceStatus: AttendanceStatus) {
+    setManagerMatches((current) => current.map((match) => match.id === matchId
+      ? { ...match, players: match.players.map((player) => player.id === playerId ? { ...player, attendanceStatus } : player) }
+      : match))
+  }
+
+  async function saveAttendance(match: ManagerMatch) {
+    if (!supabase || match.players.length === 0 || match.players.some((player) => player.attendanceStatus === null)) return
     setBusy(true)
-    const { error } = await supabase.rpc('record_attendance', { p_match_id: match.id, p_player_id: player.id, p_attended: attended })
+    const { error } = await supabase.rpc('save_match_attendance', {
+      p_match_id: match.id,
+      p_attendance: match.players.map((player) => ({ player_id: player.id, status: player.attendanceStatus })),
+    })
     setBusy(false)
-    if (error) setNotice('לא הצלחנו לעדכן את הנוכחות.')
-    else { setNotice(`הנוכחות של ${player.first} ${player.last} עודכנה.`); setRefreshKey((value) => value + 1) }
+    if (error) setNotice('לא הצלחנו לשמור את הנוכחות. נסו שוב.')
+    else { setNotice(`הנוכחות למשחק מ־${formatWeekDate(match.week_start)} נשמרה.`); setRefreshKey((value) => value + 1) }
   }
 
   const userIsRegistered = live ? Boolean(user && registered) : registered
@@ -447,10 +459,20 @@ function App() {
             return <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-member-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{(member.id !== user?.id || canAddAbsence) && <div className="manager-member-menu"><button type="button" className="manager-member-menu-trigger" aria-label={`אפשרויות עבור ${member.first_name} ${member.last_name}`} aria-haspopup="menu" aria-expanded={openMemberMenuId === member.id} onClick={() => setOpenMemberMenuId((openId) => openId === member.id ? null : member.id)}>⋮</button>{openMemberMenuId === member.id && <div className="manager-member-menu-panel" role="menu">{member.id !== user?.id && (member.role === 'player' ? <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'manager')}>הפוך למנהל</button> : <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'player')}>הסר הרשאת מנהל</button>)}{canAddAbsence && <button type="button" role="menuitem" onClick={() => void addAbsence(member)}>הוסף היעדרות</button>}{member.id !== user?.id && <button type="button" role="menuitem" className="danger-menu-item" onClick={() => void revokeApproval(member)}>הסר משתמש</button>}</div>}</div>}</div></div>
           }) : <p className="empty-list">אין משתמשים מאושרים.</p>}
         </div>
-        <div className="manager-section manager-section-attendance"><div className="list-heading"><h3>עדכון נוכחות</h3><span>סימון הגעה למשחקים שנסגרו</span></div>
-          {managerMatches.length ? managerMatches.map((match) => <div className="attendance-match" key={match.id}><h4>{formatWeekDate(match.week_start)} · {match.status === 'selected' ? 'ממתין לעדכון נוכחות' : 'הנוכחות עודכנה'}</h4>
-            {match.players.length ? match.players.map((player) => <div className="manager-row attendance-row" key={player.id}><strong>{player.first} {player.last}</strong><div className="manager-actions"><button className={player.result === 'attended' ? 'approve-button attendance-active' : 'approve-button'} onClick={() => void updateAttendance(match, player, true)} disabled={busy} aria-pressed={player.result === 'attended'}>הגיע</button><button className={player.result === 'no_show' ? 'reject-button attendance-active' : 'reject-button'} onClick={() => void updateAttendance(match, player, false)} disabled={busy} aria-pressed={player.result === 'no_show'}>לא הגיע</button></div></div>) : <p className="empty-list">אין שחקנים שנבחרו בהרכב.</p>}
-          </div>) : <p className="empty-list">עדיין אין משחקים סגורים לעדכון נוכחות.</p>}
+        <div className="manager-section manager-section-attendance"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים סגורים שממתינים לסימון ולשמירה</span></div>
+          {managerMatches.some((match) => match.status === 'selected') ? managerMatches.filter((match) => match.status === 'selected').map((match) => {
+            const allMarked = match.players.length > 0 && match.players.every((player) => player.attendanceStatus !== null)
+            return <div className="attendance-match" key={match.id}><h4>{formatWeekDate(match.week_start)} · הנוכחות טרם נשמרה</h4>
+              {match.players.length ? <>
+                {match.players.map((player) => <div className="manager-row attendance-row" key={player.id}><strong>{player.first} {player.last}</strong><div className="attendance-actions">
+                  <button type="button" className={player.attendanceStatus === 'attended' ? 'approve-button attendance-active' : 'approve-button'} onClick={() => markAttendance(match.id, player.id, 'attended')} disabled={busy} aria-pressed={player.attendanceStatus === 'attended'}>הגיע</button>
+                  <button type="button" className={player.attendanceStatus === 'no_show' ? 'reject-button attendance-active' : 'reject-button'} onClick={() => markAttendance(match.id, player.id, 'no_show')} disabled={busy} aria-pressed={player.attendanceStatus === 'no_show'}>הבריז</button>
+                  <button type="button" className={player.attendanceStatus === 'excused' ? 'excused-button attendance-active' : 'excused-button'} onClick={() => markAttendance(match.id, player.id, 'excused')} disabled={busy} aria-pressed={player.attendanceStatus === 'excused'}>חיסור מוצדק</button>
+                </div></div>)}
+                <button type="button" className="approve-button attendance-save" onClick={() => void saveAttendance(match)} disabled={!allMarked || busy}>שמור נוכחות</button>
+              </> : <p className="empty-list">לא נמצאו נרשמים למשחק הזה.</p>}
+            </div>
+          }) : <p className="empty-list">אין משחקים שממתינים לעדכון נוכחות.</p>}
         </div>
       </section>}
 
