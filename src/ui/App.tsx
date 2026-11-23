@@ -54,6 +54,7 @@ function App() {
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
   const selectedPlayers = useMemo(() => players.filter((player) => player.selectionRank != null && player.selectionRank <= signupCapacity).sort((a, b) => a.selectionRank! - b.selectionRank!), [players, signupCapacity])
   const additionalPlayers = useMemo(() => players.filter((player) => player.selectionRank != null && player.selectionRank > signupCapacity).sort((a, b) => a.selectionRank! - b.selectionRank!), [players, signupCapacity])
+  const rankedOpenPlayers = useMemo(() => [...players].sort((a, b) => (a.selectionRank ?? Number.MAX_SAFE_INTEGER) - (b.selectionRank ?? Number.MAX_SAFE_INTEGER) || (a.signupTime ?? '').localeCompare(b.signupTime ?? '')), [players])
   const latestClosedMatch = useMemo(() => managerMatches[0]?.status !== 'signup' ? managerMatches[0] : undefined, [managerMatches])
   const todayDate = useMemo(() => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now), [now])
   const nextSignupBoundary = useMemo(() => {
@@ -409,17 +410,17 @@ function App() {
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">{signupCapacity}<br />מקומות בהרכב</span></div>
           </div>
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / signupCapacity * 100)}%` }} /></div>
-          <div className="list-heading"><h3>{registrationOpen ? 'העדיפות כרגע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'הדירוג מתעדכן עם כל הרשמה; ההרכב ייקבע בסגירה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
+          <div className="list-heading"><h3>{registrationOpen ? 'העדיפות כרגע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'דירוג לפי היסטוריית הגעה והיעדרות · שוויון יוכרע בהגרלה בסגירה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
           <div className="player-list">
-            {selectedPlayers.map((player, index) => (
+            {(registrationOpen ? rankedOpenPlayers : selectedPlayers).map((player, index) => (
               <div className="player-row" key={player.id}>
-                <span className="player-number">{String(index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
+                <span className="player-number">{String(registrationOpen ? (player.selectionRank ?? index + 1) : index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
             ))}
-            {additionalPlayers.length > 0 && <div className="player-list-divider"><span>{registrationOpen ? 'כרגע מחוץ ל־15 הראשונים · הדירוג עוד יכול להשתנות' : 'נרשמו ולא נבחרו להרכב'}</span></div>}
-            {additionalPlayers.map((player, index) => (
+            {!registrationOpen && additionalPlayers.length > 0 && <div className="player-list-divider"><span>נרשמו ולא נבחרו להרכב</span></div>}
+            {!registrationOpen && additionalPlayers.map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(selectedPlayers.length + index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
