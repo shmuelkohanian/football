@@ -15,6 +15,7 @@ const initialPlayers: Player[] = [
 
 function App() {
   const live = Boolean(supabase)
+  const [now, setNow] = useState(() => new Date())
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [players, setPlayers] = useState(initialPlayers)
@@ -38,6 +39,26 @@ function App() {
   const [busy, setBusy] = useState(false)
 
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
+  const nextSignupBoundary = useMemo(() => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now)
+    const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+    const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(value('weekday'))
+    const hour = Number(value('hour'))
+    const isOpen = (day === 0 && hour >= 9) || (day === 1 && hour < 9)
+    const daysUntilBoundary = isOpen ? (day === 1 ? 0 : 1) : (7 - day) % 7
+    const boundary = new Date(Date.UTC(Number(value('year')), Number(value('month')) - 1, Number(value('day')) + daysUntilBoundary, 9))
+    const formattedDate = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(boundary)
+    return { isOpen, date: formattedDate }
+  }, [now])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    setRegistrationOpen(nextSignupBoundary.isOpen)
+  }, [nextSignupBoundary.isOpen])
 
   useEffect(() => {
     if (!supabase) return
@@ -258,10 +279,16 @@ function App() {
         </a>
         <div className="top-actions">
           {profile?.role === 'manager' && profile.status === 'approved' && <button className="button button-quiet manager-toggle" onClick={() => setShowManager((open) => !open)}>{showManager ? 'עמוד ההרשמה' : 'לוח מנהל'}</button>}
-          {user ? <button className="button button-quiet desktop-join" onClick={signOut}>התנתקות</button> : <button className="button button-quiet desktop-join" onClick={() => openAuth('join')}>הצטרפות למועדון</button>}
+          {user ? <button className="button button-quiet desktop-join" onClick={signOut}>התנתקות</button> : <>
+            <button className="button button-quiet desktop-join" onClick={() => openAuth('login')}>התחברות</button>
+            <button className="button button-quiet desktop-join" onClick={() => openAuth('join')}>הצטרפות למועדון</button>
+          </>}
           {user
             ? <button className="button button-quiet mobile-menu" aria-label="התנתקות" onClick={signOut}>יציאה</button>
-            : <button className="button button-quiet mobile-menu" aria-label="הצטרפות למועדון" onClick={() => openAuth('join')}>הצטרפות</button>}
+            : <>
+              <button className="button button-quiet mobile-menu" onClick={() => openAuth('login')}>התחברות</button>
+              <button className="button button-quiet mobile-menu" aria-label="הצטרפות למועדון" onClick={() => openAuth('join')}>הצטרפות</button>
+            </>}
         </div>
       </header>
 
@@ -272,8 +299,8 @@ function App() {
             <h1>נתראה<br /><em>על הדשא.</em></h1>
             <p className="intro">משחק טוב מתחיל בקבוצה טובה. שריינו מקום למשחק השבועי שלנו.</p>
             <div className="hero-meta">
-              <div className="meta-item"><span className="meta-icon">◷</span><span><small>ההרשמה נסגרת</small><strong>יום שני · 08:00</strong></span></div>
-              <div className="meta-item"><span className="meta-icon">⌖</span><span><small>מיקום המשחק</small><strong>המגרש הקבוע</strong></span></div>
+              <div className="meta-item"><span className="meta-icon">◷</span><span><small>{nextSignupBoundary.isOpen ? 'סגירת ההרשמה' : 'פתיחת ההרשמה'}</small><strong>{nextSignupBoundary.date} · 09:00</strong></span></div>
+              <div className="meta-item"><span className="meta-icon">⌖</span><span><small>מיקום המשחק</small><strong>גינות שומרון</strong></span></div>
             </div>
             <div className="hero-actions">
               <button className={`button button-primary ${userIsRegistered ? 'button-registered' : ''}`} onClick={() => { if (canSignUp) void toggleSignup(); else if (live && !user) openAuth('login'); else setNotice(profile?.status === 'pending' ? 'בקשת ההצטרפות ממתינה לאישור מנהל.' : profile?.status === 'rejected' ? 'בקשת ההצטרפות נדחתה. פנו למנהל המועדון.' : 'ההרשמה נסגרה.') }} disabled={busy}>
