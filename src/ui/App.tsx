@@ -34,6 +34,7 @@ function App() {
   const [notice, setNotice] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const [showManager, setShowManager] = useState(false)
+  const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null)
   const [pendingMembers, setPendingMembers] = useState<Profile[]>([])
   const [approvedMembers, setApprovedMembers] = useState<Profile[]>([])
   const [managerMatches, setManagerMatches] = useState<ManagerMatch[]>([])
@@ -42,6 +43,7 @@ function App() {
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
   const selectedPlayers = useMemo(() => players.filter((player) => player.selectionRank != null).sort((a, b) => a.selectionRank! - b.selectionRank!), [players])
   const additionalPlayers = useMemo(() => players.filter((player) => player.selectionRank == null).sort((a, b) => (a.signupTime ?? '').localeCompare(b.signupTime ?? '')), [players])
+  const todayDate = useMemo(() => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now), [now])
   const nextSignupBoundary = useMemo(() => {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now)
     const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
@@ -268,10 +270,19 @@ function App() {
 
   async function revokeApproval(member: Profile) {
     if (!supabase || member.id === user?.id) return
-    if (!window.confirm(`להסיר את האישור של ${member.first_name} ${member.last_name}?`)) return
+    if (!window.confirm(`להסיר את ${member.first_name} ${member.last_name} מהקבוצה? החשבון יועבר לבקשות הממתינות.`)) return
     const { error } = await supabase.rpc('revoke_member_approval', { p_player_id: member.id })
     if (error) setNotice('לא הצלחנו להסיר את האישור.')
-    else { setNotice(`האישור של ${member.first_name} ${member.last_name} הוסר.`); setRefreshKey((value) => value + 1) }
+    else { setOpenMemberMenuId(null); setNotice(`${member.first_name} ${member.last_name} הועבר לבקשות הממתינות.`); setRefreshKey((value) => value + 1) }
+  }
+
+  async function changeMemberRole(member: Profile, role: Profile['role']) {
+    if (!supabase || member.id === user?.id) return
+    const action = role === 'manager' ? 'להפוך למנהל' : 'להסיר את הרשאת המנהל של'
+    if (!window.confirm(`${action} ${member.first_name} ${member.last_name}?`)) return
+    const { error } = await supabase.rpc('set_member_role', { p_player_id: member.id, p_role: role })
+    if (error) setNotice('לא הצלחנו לעדכן את הרשאת המשתמש.')
+    else { setOpenMemberMenuId(null); setNotice(role === 'manager' ? `${member.first_name} ${member.last_name} הוגדר כמנהל.` : `הרשאת המנהל של ${member.first_name} ${member.last_name} הוסרה.`); setRefreshKey((value) => value + 1) }
   }
 
   async function recordAttendance(matchId: string, playerId: string, attended: boolean) {
@@ -341,7 +352,7 @@ function App() {
 
         <section className="signup-panel" aria-label="מצב ההרשמה">
           <div className="signup-summary">
-            <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : 'ההרכב השבועי'}</h2></div>
+            <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : `ההרכב השבועי ${todayDate}`}</h2></div>
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">15<br />מקומות בהרכב</span></div>
           </div>
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / 15 * 100)}%` }} /></div>
@@ -370,13 +381,13 @@ function App() {
 
       {showManager && <section className="manager-panel">
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
-        <div className="manager-section"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
+        <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
           {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
         </div>
-        <div className="manager-section"><div className="list-heading"><h3>משתמשים מאושרים</h3><span>{approvedMembers.length} משתמשים</span></div>
-          {approvedMembers.length ? approvedMembers.map((member) => <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{member.id !== user?.id && <button className="reject-button" onClick={() => void revokeApproval(member)}>הסרת אישור</button>}</div></div>) : <p className="empty-list">אין משתמשים מאושרים.</p>}
+        <div className="manager-section manager-section-approved"><div className="list-heading"><h3>משתמשים מאושרים</h3><span>{approvedMembers.length} משתמשים</span></div>
+          {approvedMembers.length ? approvedMembers.map((member) => <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-member-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{member.id !== user?.id && <div className="manager-member-menu"><button type="button" className="manager-member-menu-trigger" aria-label={`אפשרויות עבור ${member.first_name} ${member.last_name}`} aria-haspopup="menu" aria-expanded={openMemberMenuId === member.id} onClick={() => setOpenMemberMenuId((openId) => openId === member.id ? null : member.id)}>⋮</button>{openMemberMenuId === member.id && <div className="manager-member-menu-panel" role="menu">{member.role === 'player' ? <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'manager')}>הפוך למנהל</button> : <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'player')}>הסר הרשאת מנהל</button>}<button type="button" role="menuitem" className="danger-menu-item" onClick={() => void revokeApproval(member)}>הסר משתמש</button></div>}</div>}</div></div>) : <p className="empty-list">אין משתמשים מאושרים.</p>}
         </div>
-        <div className="manager-section"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים אחרונים</span></div>
+        <div className="manager-section manager-section-attendance"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים אחרונים</span></div>
           {managerMatches.map((match) => <div className="attendance-match" key={match.id}><h4>שבוע שמתחיל ב־{new Date(`${match.week_start}T12:00:00`).toLocaleDateString('he-IL')}</h4>{match.status === 'signup' && <div className="finalize-row"><span>{registrationOpen ? 'ההרשמה עדיין פתוחה' : 'ההרשמה נסגרה; אפשר לבצע בחירה ידנית'}</span>{!registrationOpen && <button className="approve-button" onClick={() => finalizeMatch(match.week_start)}>בחירת 15 שחקנים</button>}</div>}{match.players.map((player) => <div className="manager-row" key={player.id}><strong>{player.first} {player.last}</strong>{player.result === 'selected' ? <div className="manager-actions"><button className="approve-button" onClick={() => recordAttendance(match.id, player.id, true)}>הגיע</button><button className="reject-button" onClick={() => recordAttendance(match.id, player.id, false)}>לא הגיע</button></div> : <span className="player-stat">{player.result === 'attended' ? 'הגיע' : 'לא הגיע'}</span>}</div>)}</div>)}
           {!managerMatches.length && <p className="empty-list">לא נמצאו משחקים שממתינים לעדכון נוכחות.</p>}
         </div>
