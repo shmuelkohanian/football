@@ -1,7 +1,7 @@
 # Supabase setup
 
 1. Create a Supabase project and copy its project URL and publishable key into `.env.local`.
-2. Apply `migrations/001_initial_schema.sql` in the Supabase SQL editor.
+2. Apply migrations `001_initial_schema.sql`, `002_signup_window_0900.sql`, and `003_manager_membership_management.sql` in order in the Supabase SQL editor. Migration 003 adds the manager action for removing an approved member's access.
 3. Create the first account through the app, then promote it from a trusted SQL Editor session:
 
    ```sql

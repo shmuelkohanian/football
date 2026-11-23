@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
-type Player = { id: string; first: string; last: string; attended: number; missed: number; registered: boolean }
+type Player = { id: string; first: string; last: string; attended: number; missed: number; registered: boolean; selectionRank?: number | null; signupTime?: string }
 type Profile = { id: string; first_name: string; last_name: string; status: 'pending' | 'approved' | 'rejected'; role: 'player' | 'manager' }
 type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string }> }
 
@@ -35,10 +35,13 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [showManager, setShowManager] = useState(false)
   const [pendingMembers, setPendingMembers] = useState<Profile[]>([])
+  const [approvedMembers, setApprovedMembers] = useState<Profile[]>([])
   const [managerMatches, setManagerMatches] = useState<ManagerMatch[]>([])
   const [busy, setBusy] = useState(false)
 
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
+  const selectedPlayers = useMemo(() => players.filter((player) => player.selectionRank != null).sort((a, b) => a.selectionRank! - b.selectionRank!), [players])
+  const additionalPlayers = useMemo(() => players.filter((player) => player.selectionRank == null).sort((a, b) => (a.signupTime ?? '').localeCompare(b.signupTime ?? '')), [players])
   const nextSignupBoundary = useMemo(() => {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now)
     const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
@@ -123,11 +126,12 @@ function App() {
         return
       }
       const { data: entries, error: entriesError } = await supabase!.from('match_entries')
-        .select('player_id, result, selection_rank').eq('match_id', match.id).is('cancelled_at', null)
+        .select('player_id, result, selection_rank, signed_up_at').eq('match_id', match.id).is('cancelled_at', null)
       if (!active) return
       if (entriesError || !entries) return
       setRegistered(entries.some((entry) => entry.player_id === user!.id))
-      const visibleEntries = openWeek ? entries : entries.filter((entry) => entry.selection_rank !== null)
+      const selectionComplete = match.status !== 'signup'
+      const visibleEntries = openWeek ? entries : selectionComplete ? entries : []
       const ids = visibleEntries.map((entry) => entry.player_id)
       if (!ids.length) {
         setPlayers([])
@@ -140,7 +144,13 @@ function App() {
       if (!active) return
       const stats = new Map((statsResponse.data ?? []).map((row) => [row.player_id, row]))
       const names = new Map((profilesResponse.data ?? []).map((row) => [row.id, row]))
-      const fetchedPlayers = visibleEntries.flatMap((entry) => {
+      const orderedEntries = [...visibleEntries].sort((a, b) => {
+        if (a.selection_rank !== null && b.selection_rank !== null) return a.selection_rank - b.selection_rank
+        if (a.selection_rank !== null) return -1
+        if (b.selection_rank !== null) return 1
+        return a.signed_up_at.localeCompare(b.signed_up_at)
+      })
+      const fetchedPlayers = orderedEntries.flatMap((entry) => {
         const name = names.get(entry.player_id)
         if (!name) return []
         const playerStats = stats.get(entry.player_id)
@@ -151,6 +161,8 @@ function App() {
           attended: playerStats?.attended_last_8 ?? 0,
           missed: playerStats?.no_shows_last_8 ?? 0,
           registered: true,
+          selectionRank: entry.selection_rank,
+          signupTime: entry.signed_up_at,
         }]
       })
       setPlayers(fetchedPlayers)
@@ -163,12 +175,14 @@ function App() {
     if (!supabase || !showManager || profile?.role !== 'manager' || profile.status !== 'approved') return
     let active = true
     async function loadManagerBoard() {
-      const [pendingResponse, matchesResponse] = await Promise.all([
+      const [pendingResponse, approvedResponse, matchesResponse] = await Promise.all([
         supabase!.from('profiles').select('id, first_name, last_name, status, role').eq('status', 'pending').order('created_at'),
+        supabase!.from('profiles').select('id, first_name, last_name, status, role').eq('status', 'approved').order('first_name').order('last_name'),
         supabase!.from('matches').select('id, week_start, status').in('status', ['signup', 'selected', 'completed']).order('week_start', { ascending: false }).limit(4),
       ])
       if (!active) return
       setPendingMembers((pendingResponse.data ?? []) as Profile[])
+      setApprovedMembers((approvedResponse.data ?? []) as Profile[])
       const matches = matchesResponse.data ?? []
       const ids = matches.map((match) => match.id)
       if (!ids.length) { setManagerMatches([]); return }
@@ -252,6 +266,14 @@ function App() {
     else { setNotice(approve ? 'השחקן אושר.' : 'בקשת ההצטרפות נדחתה.'); setRefreshKey((value) => value + 1) }
   }
 
+  async function revokeApproval(member: Profile) {
+    if (!supabase || member.id === user?.id) return
+    if (!window.confirm(`להסיר את האישור של ${member.first_name} ${member.last_name}?`)) return
+    const { error } = await supabase.rpc('revoke_member_approval', { p_player_id: member.id })
+    if (error) setNotice('לא הצלחנו להסיר את האישור.')
+    else { setNotice(`האישור של ${member.first_name} ${member.last_name} הוסר.`); setRefreshKey((value) => value + 1) }
+  }
+
   async function recordAttendance(matchId: string, playerId: string, attended: boolean) {
     if (!supabase) return
     const { error } = await supabase.rpc('record_attendance', { p_match_id: matchId, p_player_id: playerId, p_attended: attended })
@@ -267,6 +289,7 @@ function App() {
   }
 
   const userIsRegistered = live ? Boolean(user && registered) : registered
+  const displayedPlayerCount = registrationOpen ? registeredCount : selectedPlayers.length
   const canSignUp = !live || (user !== null && profile?.status === 'approved' && registrationOpen)
 
   return (
@@ -319,14 +342,22 @@ function App() {
         <section className="signup-panel" aria-label="מצב ההרשמה">
           <div className="signup-summary">
             <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : 'ההרכב השבועי'}</h2></div>
-            <div className="spots"><strong>{String(registeredCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">15<br />מקומות בהרכב</span></div>
+            <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">15<br />מקומות בהרכב</span></div>
           </div>
-          <div className="progress-track"><span style={{ width: `${Math.min(100, registeredCount / 15 * 100)}%` }} /></div>
-          <div className="list-heading"><h3>{registrationOpen ? 'נרשמים לשבוע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'ההרכב הסופי ייקבע עם סגירת ההרשמה' : 'הרכב של עד 15 שחקנים'}</span></div>
+          <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / 15 * 100)}%` }} /></div>
+          <div className="list-heading"><h3>{registrationOpen ? 'נרשמים לשבוע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'ההרכב הסופי ייקבע עם סגירת ההרשמה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
           <div className="player-list">
-            {players.map((player, index) => (
+            {(registrationOpen ? players : selectedPlayers).map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
+                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
+                {player.id === user?.id && <span className="you-badge">אתה</span>}
+              </div>
+            ))}
+            {!registrationOpen && additionalPlayers.length > 0 && <div className="player-list-divider"><span>נרשמו ולא נבחרו להרכב</span></div>}
+            {!registrationOpen && additionalPlayers.map((player, index) => (
+              <div className="player-row" key={player.id}>
+                <span className="player-number">{String(selectedPlayers.length + index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
                 <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
@@ -341,6 +372,9 @@ function App() {
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
         <div className="manager-section"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
           {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
+        </div>
+        <div className="manager-section"><div className="list-heading"><h3>משתמשים מאושרים</h3><span>{approvedMembers.length} משתמשים</span></div>
+          {approvedMembers.length ? approvedMembers.map((member) => <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{member.id !== user?.id && <button className="reject-button" onClick={() => void revokeApproval(member)}>הסרת אישור</button>}</div></div>) : <p className="empty-list">אין משתמשים מאושרים.</p>}
         </div>
         <div className="manager-section"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים אחרונים</span></div>
           {managerMatches.map((match) => <div className="attendance-match" key={match.id}><h4>שבוע שמתחיל ב־{new Date(`${match.week_start}T12:00:00`).toLocaleDateString('he-IL')}</h4>{match.status === 'signup' && <div className="finalize-row"><span>{registrationOpen ? 'ההרשמה עדיין פתוחה' : 'ההרשמה נסגרה; אפשר לבצע בחירה ידנית'}</span>{!registrationOpen && <button className="approve-button" onClick={() => finalizeMatch(match.week_start)}>בחירת 15 שחקנים</button>}</div>}{match.players.map((player) => <div className="manager-row" key={player.id}><strong>{player.first} {player.last}</strong>{player.result === 'selected' ? <div className="manager-actions"><button className="approve-button" onClick={() => recordAttendance(match.id, player.id, true)}>הגיע</button><button className="reject-button" onClick={() => recordAttendance(match.id, player.id, false)}>לא הגיע</button></div> : <span className="player-stat">{player.result === 'attended' ? 'הגיע' : 'לא הגיע'}</span>}</div>)}</div>)}
