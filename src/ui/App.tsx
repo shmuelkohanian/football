@@ -299,7 +299,7 @@ function App() {
             <h1>נתראה<br /><em>על הדשא.</em></h1>
             <p className="intro">משחק טוב מתחיל בקבוצה טובה. שריינו מקום למשחק השבועי שלנו.</p>
             <div className="hero-meta">
-              <div className="meta-item"><span className="meta-icon">◷</span><span><small>{nextSignupBoundary.isOpen ? 'סגירת ההרשמה' : 'פתיחת ההרשמה'}</small><strong>{nextSignupBoundary.date} · 09:00</strong></span></div>
+              <div className="meta-item"><span className="meta-icon">◷</span><span><small>{nextSignupBoundary.isOpen ? 'סגירת ההרשמה' : 'פתיחת הרשמה הבאה'}</small><strong>{nextSignupBoundary.date} · 09:00</strong></span></div>
               <div className="meta-item"><span className="meta-icon">⌖</span><span><small>מיקום המשחק</small><strong>גינות שומרון</strong></span></div>
             </div>
             <div className="hero-actions">
