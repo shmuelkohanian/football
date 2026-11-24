@@ -46,7 +46,6 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [showManager, setShowManager] = useState(false)
   const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null)
-  const [pendingSignupState, setPendingSignupState] = useState<boolean | null>(null)
   const [pendingMembers, setPendingMembers] = useState<Profile[]>([])
   const [approvedMembers, setApprovedMembers] = useState<Profile[]>([])
   const [managerMatches, setManagerMatches] = useState<ManagerMatch[]>([])
@@ -57,7 +56,6 @@ function App() {
   const additionalPlayers = useMemo(() => players.filter((player) => player.selectionRank != null && player.selectionRank > signupCapacity).sort((a, b) => a.selectionRank! - b.selectionRank!), [players, signupCapacity])
   const rankedOpenPlayers = useMemo(() => [...players].sort((a, b) => (a.selectionRank ?? Number.MAX_SAFE_INTEGER) - (b.selectionRank ?? Number.MAX_SAFE_INTEGER) || (a.signupTime ?? '').localeCompare(b.signupTime ?? '')), [players])
   const latestClosedMatch = useMemo(() => managerMatches[0]?.status !== 'signup' ? managerMatches[0] : undefined, [managerMatches])
-  const todayDate = useMemo(() => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', year: 'numeric' }).format(now), [now])
   const nextSignupBoundary = useMemo(() => {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now)
     const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
@@ -67,20 +65,28 @@ function App() {
     const daysUntilBoundary = isOpen ? (day === 1 ? 0 : 1) : (7 - day) % 7
     const boundary = new Date(Date.UTC(Number(value('year')), Number(value('month')) - 1, Number(value('day')) + daysUntilBoundary, 9))
     const weekStart = new Date(Date.UTC(Number(value('year')), Number(value('month')) - 1, Number(value('day')) - day))
-    const weekStartValue = `${weekStart.getUTCFullYear()}-${String(weekStart.getUTCMonth() + 1).padStart(2, '0')}-${String(weekStart.getUTCDate()).padStart(2, '0')}`
+    if (day === 0 && hour < 9) weekStart.setUTCDate(weekStart.getUTCDate() - 7)
+    const cycleWeekStart = `${weekStart.getUTCFullYear()}-${String(weekStart.getUTCMonth() + 1).padStart(2, '0')}-${String(weekStart.getUTCDate()).padStart(2, '0')}`
     const formattedDate = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(boundary)
-    return { isOpen, date: formattedDate, weekStart: weekStartValue }
+    return { isOpen, isClosingHour: day === 1 && hour === 9, date: formattedDate, weekStart: cycleWeekStart }
   }, [now])
   const displayedSignupBoundary = useMemo(() => {
     if (registrationOpen && openSignupWeek) return { label: 'סגירת ההרשמה', date: formatWeekDate(openSignupWeek, 1) }
     if (!registrationOpen && nextSignupBoundary.isOpen) return { label: 'פתיחת הרשמה הבאה', date: formatWeekDate(nextSignupBoundary.weekStart, 7) }
     return { label: nextSignupBoundary.isOpen ? 'סגירת ההרשמה' : 'פתיחת הרשמה הבאה', date: nextSignupBoundary.date }
   }, [registrationOpen, openSignupWeek, nextSignupBoundary])
+  const rosterWeek = registrationOpen && openSignupWeek ? openSignupWeek : nextSignupBoundary.weekStart
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    if (registrationOpen || !nextSignupBoundary.isClosingHour) return
+    const timer = window.setTimeout(() => setRefreshKey((value) => value + 1), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [registrationOpen, nextSignupBoundary.isClosingHour])
 
   useEffect(() => {
     if (!supabase) {
@@ -140,20 +146,16 @@ function App() {
     }
     let active = true
     async function loadWeek() {
-      const [weekResponse, openResponse] = await Promise.all([
-        supabase!.rpc('current_week_start'),
-        supabase!.rpc('signup_week_for_now'),
-      ])
+      const openResponse = await supabase!.rpc('signup_week_for_now')
       if (!active) return
-      if (weekResponse.error || openResponse.error) {
+      if (openResponse.error) {
         setNotice('לא הצלחנו לטעון את מצב ההרשמה כרגע.')
         return
       }
-      const currentWeek = weekResponse.data as string | null
       const openWeek = openResponse.data as string | null
       setRegistrationOpen(Boolean(openWeek))
       setOpenSignupWeek(openWeek)
-      const weekToLoad = openWeek ?? currentWeek
+      const weekToLoad = openWeek ?? rosterWeek
       if (!weekToLoad) return
       const { data: match, error: matchError } = await supabase!.from('matches').select('id, status').eq('week_start', weekToLoad).maybeSingle()
       if (!active) return
@@ -206,7 +208,7 @@ function App() {
     }
     void loadWeek()
     return () => { active = false }
-  }, [user, refreshKey])
+  }, [user, refreshKey, nextSignupBoundary.isOpen, nextSignupBoundary.weekStart, rosterWeek])
 
   useEffect(() => {
     if (!supabase || !showManager || profile?.role !== 'manager' || profile.status !== 'approved') return
@@ -244,7 +246,7 @@ function App() {
     }
     void loadManagerBoard()
     return () => { active = false }
-  }, [showManager, profile, refreshKey, signupCapacity])
+  }, [showManager, profile, refreshKey, signupCapacity, nextSignupBoundary.isOpen])
 
   function openAuth(mode: 'join' | 'login') {
     setAuthMode(mode)
@@ -267,23 +269,6 @@ function App() {
     setBusy(false)
     if (error) setNotice(error.message.includes('Signup is closed') ? 'ההרשמה נסגרה.' : 'לא הצלחנו לעדכן את ההרשמה.')
     else { setNotice(!registered ? 'נרשמת למשחק השבועי.' : 'ההרשמה שלך בוטלה.'); setRefreshKey((value) => value + 1) }
-  }
-
-  async function updateSignupState() {
-    if (pendingSignupState === null || !supabase) return
-    const nextState = pendingSignupState
-    setBusy(true)
-    const { error } = await supabase.rpc('set_signup_open', { p_is_open: nextState })
-    setBusy(false)
-    setPendingSignupState(null)
-    if (error) {
-      setNotice(error.message.includes('already finalized') ? 'לא הצלחנו לפתוח הרשמה לשבוע הבא.' : 'לא הצלחנו לשנות את מצב ההרשמה.')
-      return
-    }
-    setRegistrationOpen(nextState)
-    if (!nextState) setOpenSignupWeek(null)
-    setNotice(nextState ? 'ההרשמה נפתחה.' : 'ההרשמה נסגרה.')
-    setRefreshKey((value) => value + 1)
   }
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
@@ -418,7 +403,7 @@ function App() {
 
         <section className="signup-panel" aria-label="מצב ההרשמה">
           <div className="signup-summary">
-            <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : `ההרכב השבועי ${todayDate}`}</h2></div>
+            <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : `ההרכב השבועי ${formatWeekDate(rosterWeek, 1)}`}</h2></div>
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">{signupCapacity}<br />מקומות בהרכב</span></div>
           </div>
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / signupCapacity * 100)}%` }} /></div>
@@ -447,9 +432,6 @@ function App() {
 
       {showManager && <section className="manager-panel">
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
-        <div className="manager-section manager-section-signup"><div className="list-heading"><h3>ניהול הרשמה</h3><span>{registrationOpen ? `פתוחה · שבוע המשחק ${formatWeekDate(openSignupWeek)}` : 'ההרשמה סגורה'}</span></div>
-          <div className="signup-admin-controls"><p>{registrationOpen ? 'שחקנים מאושרים יכולים להירשם או לבטל כרגע.' : 'שחקנים לא יכולים להירשם כרגע.'}</p><button className={registrationOpen ? 'reject-button' : 'approve-button'} onClick={() => setPendingSignupState(!registrationOpen)}>{registrationOpen ? 'סגירת הרשמה' : 'פתיחת הרשמה'}</button></div>
-        </div>
         <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
           {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
         </div>
@@ -478,14 +460,6 @@ function App() {
 
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="סגירה" onClick={() => setNotice('')}>×</button></div>}
       <footer className="footer"><span>כדורגל זה יותר ממשחק.</span><span>נפגשים על הדשא <b>·</b> כל שבוע</span></footer>
-
-      {pendingSignupState !== null && <div className="modal-backdrop" role="presentation" onClick={() => setPendingSignupState(null)}>
-        <section className="join-modal signup-confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="signup-confirm-title" aria-describedby="signup-confirm-description" onClick={(event) => event.stopPropagation()}>
-          <span className="section-kicker">ניהול הרשמה</span><h2 id="signup-confirm-title">{pendingSignupState ? 'לפתוח את ההרשמה?' : 'לסגור את ההרשמה?'}</h2>
-          <p id="signup-confirm-description">{pendingSignupState ? 'משתמשים מאושרים יוכלו להירשם למשחק השבועי.' : 'משתמשים לא יוכלו להירשם או לבטל את ההרשמה למשחק השבועי.'} בטוח שברצונך להמשיך?</p>
-          <div className="signup-confirm-actions"><button className="button button-quiet signup-cancel" onClick={() => setPendingSignupState(null)} disabled={busy}>ביטול</button><button className={`button ${pendingSignupState ? 'button-primary' : 'signup-close-confirm'}`} onClick={() => void updateSignupState()} disabled={busy}>{busy ? 'מעדכן…' : pendingSignupState ? 'כן, לפתוח הרשמה' : 'כן, לסגור הרשמה'}</button></div>
-        </section>
-      </div>}
 
       {showJoin && <div className="modal-backdrop" role="presentation" onClick={() => setShowJoin(false)}>
         <section className="join-modal" role="dialog" aria-modal="true" aria-labelledby="join-title" onClick={(event) => event.stopPropagation()}>
