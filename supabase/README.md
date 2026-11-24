@@ -1,7 +1,7 @@
 # Supabase setup
 
 1. Create a Supabase project and copy its project URL and publishable key into `.env.local`.
-2. Apply migrations `001_initial_schema.sql` through `015_temporary_manual_signup_control.sql` in order in the Supabase SQL editor. Migrations 008–014 remove the temporary registration limit, set the roster size to 15, rank every registrant, add four attendance statuses, calculate weighted priority over the previous eight weeks, save goals and assists, and provide monthly leaderboards that skip empty periods. Migration 015 temporarily restores manager-only manual opening and closing controls for testing.
+2. Apply migrations `001_initial_schema.sql` through `016_restore_automatic_signup_schedule.sql` in order in the Supabase SQL editor. Migrations 008–014 remove the temporary registration limit, set the roster size to 15, rank every registrant, add four attendance statuses, calculate weighted priority over the previous eight weeks, save goals and assists, and provide monthly leaderboards that skip empty periods. Migration 016 restores automatic signup scheduling if migration 015 was applied.
 3. Create the first account through the app, then promote it from a trusted SQL Editor session:
 
    ```sql
