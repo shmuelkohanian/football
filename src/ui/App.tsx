@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
-type Player = { id: string; first: string; last: string; attended: number; missed: number; registered: boolean; selectionRank?: number | null; signupTime?: string }
+type Player = { id: string; first: string; last: string; attended: number; late: number; missed: number; registered: boolean; selectionRank?: number | null; signupTime?: string }
 type Profile = { id: string; first_name: string; last_name: string; status: 'pending' | 'approved' | 'rejected'; role: 'player' | 'manager' }
-type AttendanceStatus = 'attended' | 'no_show' | 'excused'
+type AttendanceStatus = 'attended' | 'late' | 'no_show' | 'excused'
 type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string; attendanceStatus: AttendanceStatus | null }> }
 
 function formatWeekDate(week: string | null, offsetDays = 0) {
@@ -15,10 +15,10 @@ function formatWeekDate(week: string | null, offsetDays = 0) {
 }
 
 const initialPlayers: Player[] = [
-  { id: 'demo-1', first: 'איתי', last: 'כהן', attended: 2, missed: 0, registered: true },
-  { id: 'demo-2', first: 'נועם', last: 'לוי', attended: 4, missed: 1, registered: false },
-  { id: 'demo-3', first: 'דניאל', last: 'פרץ', attended: 1, missed: 0, registered: true },
-  { id: 'demo-4', first: 'עומר', last: 'מזרחי', attended: 3, missed: 0, registered: false },
+  { id: 'demo-1', first: 'איתי', last: 'כהן', attended: 2, late: 0, missed: 0, registered: true },
+  { id: 'demo-2', first: 'נועם', last: 'לוי', attended: 4, late: 0, missed: 1, registered: false },
+  { id: 'demo-3', first: 'דניאל', last: 'פרץ', attended: 1, late: 0, missed: 0, registered: true },
+  { id: 'demo-4', first: 'עומר', last: 'מזרחי', attended: 3, late: 0, missed: 0, registered: false },
 ]
 const FALLBACK_SIGNUP_CAPACITY = 15
 
@@ -178,7 +178,7 @@ function App() {
       }
       const [profilesResponse, statsResponse] = await Promise.all([
         supabase!.from('profiles').select('id, first_name, last_name').in('id', ids),
-        supabase!.from('player_recent_stats').select('player_id, attended_last_8, no_shows_last_8').in('player_id', ids),
+        supabase!.from('player_recent_stats').select('player_id, attended_last_8, late_last_8, no_shows_last_8').in('player_id', ids),
       ])
       if (!active) return
       const stats = new Map((statsResponse.data ?? []).map((row) => [row.player_id, row]))
@@ -198,6 +198,7 @@ function App() {
           first: name.first_name,
           last: name.last_name,
           attended: playerStats?.attended_last_8 ?? 0,
+          late: playerStats?.late_last_8 ?? 0,
           missed: playerStats?.no_shows_last_8 ?? 0,
           registered: true,
           selectionRank: entry.selection_rank,
@@ -240,7 +241,7 @@ function App() {
           const name = nameMap.get(entry.player_id)
           const savedStatus = entry.attendance_status as AttendanceStatus | null
           const legacyStatus = entry.result === 'attended' || entry.result === 'no_show' ? entry.result as AttendanceStatus : null
-          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, missed: 0, registered: true, result: entry.result, attendanceStatus: savedStatus ?? legacyStatus }] : []
+          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, late: 0, missed: 0, registered: true, result: entry.result, attendanceStatus: savedStatus ?? legacyStatus }] : []
         }),
       })))
     }
@@ -412,7 +413,7 @@ function App() {
             {(registrationOpen ? rankedOpenPlayers : selectedPlayers).map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{registrationOpen && index > 0 && player.selectionRank != null && player.selectionRank === rankedOpenPlayers[index - 1]?.selectionRank ? '—' : String(registrationOpen ? (player.selectionRank ?? index + 1) : index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
-                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
+                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.late} איחורים · {player.missed} הברזות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
             ))}
@@ -420,7 +421,7 @@ function App() {
             {!registrationOpen && additionalPlayers.map((player, index) => (
               <div className="player-row" key={player.id}>
                 <span className="player-number">{String(selectedPlayers.length + index + 1).padStart(2, '0')}</span><span className="avatar">{player.first.slice(0, 1)}</span>
-                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.missed} אי־הגעות</span>
+                <strong>{player.first} {player.last}</strong><span className="player-stat">{player.attended} הגעות · {player.late} איחורים · {player.missed} הברזות</span>
                 {player.id === user?.id && <span className="you-badge">אתה</span>}
               </div>
             ))}
@@ -447,9 +448,10 @@ function App() {
             return <div className="attendance-match" key={match.id}><h4>{formatWeekDate(match.week_start)} · הנוכחות טרם נשמרה</h4>
               {match.players.length ? <>
                 {match.players.map((player) => <div className="manager-row attendance-row" key={player.id}><strong>{player.first} {player.last}</strong><div className="attendance-actions">
-                  <button type="button" className={player.attendanceStatus === 'attended' ? 'approve-button attendance-active' : 'approve-button'} onClick={() => markAttendance(match.id, player.id, 'attended')} disabled={busy} aria-pressed={player.attendanceStatus === 'attended'}>הגיע</button>
-                  <button type="button" className={player.attendanceStatus === 'no_show' ? 'reject-button attendance-active' : 'reject-button'} onClick={() => markAttendance(match.id, player.id, 'no_show')} disabled={busy} aria-pressed={player.attendanceStatus === 'no_show'}>הבריז</button>
-                  <button type="button" className={player.attendanceStatus === 'excused' ? 'excused-button attendance-active' : 'excused-button'} onClick={() => markAttendance(match.id, player.id, 'excused')} disabled={busy} aria-pressed={player.attendanceStatus === 'excused'}>חיסור מוצדק</button>
+                  <button type="button" className={player.attendanceStatus === 'attended' ? 'attendance-choice attendance-attended attendance-active' : 'attendance-choice attendance-attended'} onClick={() => markAttendance(match.id, player.id, 'attended')} disabled={busy} aria-pressed={player.attendanceStatus === 'attended'}>הגיע</button>
+                  <button type="button" className={player.attendanceStatus === 'late' ? 'attendance-choice attendance-late attendance-active' : 'attendance-choice attendance-late'} onClick={() => markAttendance(match.id, player.id, 'late')} disabled={busy} aria-pressed={player.attendanceStatus === 'late'}>איחר</button>
+                  <button type="button" className={player.attendanceStatus === 'no_show' ? 'attendance-choice attendance-no-show attendance-active' : 'attendance-choice attendance-no-show'} onClick={() => markAttendance(match.id, player.id, 'no_show')} disabled={busy} aria-pressed={player.attendanceStatus === 'no_show'}>הבריז</button>
+                  <button type="button" className={player.attendanceStatus === 'excused' ? 'attendance-choice attendance-excused attendance-active' : 'attendance-choice attendance-excused'} onClick={() => markAttendance(match.id, player.id, 'excused')} disabled={busy} aria-pressed={player.attendanceStatus === 'excused'}>חיסור מוצדק</button>
                 </div></div>)}
                 <button type="button" className="approve-button attendance-save" onClick={() => void saveAttendance(match)} disabled={!allMarked || busy}>שמור נוכחות</button>
               </> : <p className="empty-list">לא נמצאו נרשמים למשחק הזה.</p>}

@@ -1,7 +1,7 @@
 # Supabase setup
 
 1. Create a Supabase project and copy its project URL and publishable key into `.env.local`.
-2. Apply migrations `001_initial_schema.sql` through `008_unlimited_signup_and_attendance.sql` in order in the Supabase SQL editor. Migration 008 removes the temporary registration limit, sets the roster size to 15, updates a stable priority ranking whenever someone signs up or cancels, ranks every registrant at close, and restores manager attendance marking.
+2. Apply migrations `001_initial_schema.sql` through `012_late_attendance_and_weighted_priority.sql` in order in the Supabase SQL editor. Migrations 008–012 remove the temporary registration limit, set the roster size to 15, rank every registrant, add four attendance statuses, and calculate priority from weighted attendance over the previous eight weeks.
 3. Create the first account through the app, then promote it from a trusted SQL Editor session:
 
    ```sql
