@@ -361,6 +361,22 @@ function App() {
     else { setNotice(approve ? 'השחקן אושר.' : 'בקשת ההצטרפות נדחתה.'); setRefreshKey((value) => value + 1) }
   }
 
+  async function setManualSignupOpen(isOpen: boolean) {
+    if (!supabase || profile?.role !== 'manager') return
+    const confirmation = isOpen
+      ? 'לפתוח את ההרשמה עכשיו, גם מחוץ לזמן הרגיל?'
+      : 'לסגור את ההרשמה עכשיו ולחשב את הרשימה הסופית?'
+    if (!window.confirm(confirmation)) return
+    setBusy(true)
+    const { error } = await supabase.rpc('set_signup_open', { p_is_open: isOpen })
+    setBusy(false)
+    if (error) setNotice(isOpen ? 'לא הצלחנו לפתוח את ההרשמה.' : 'לא הצלחנו לסגור את ההרשמה.')
+    else {
+      setNotice(isOpen ? 'ההרשמה נפתחה.' : 'ההרשמה נסגרה והרשימה הסופית חושבה.')
+      setRefreshKey((value) => value + 1)
+    }
+  }
+
   async function revokeApproval(member: Profile) {
     if (!supabase || member.id === user?.id) return
     if (!window.confirm(`להסיר את ${member.first_name} ${member.last_name} מהקבוצה? החשבון יועבר לבקשות הממתינות.`)) return
@@ -515,6 +531,10 @@ function App() {
 
       {showManager && <section className="manager-panel">
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
+        <div className="manager-section manager-section-signup-control"><div className="list-heading"><h3>בדיקות הרשמה</h3><span>{registrationOpen ? 'ההרשמה פתוחה' : 'ההרשמה סגורה'}</span></div>
+          <p className="signup-control-note">פתיחה או סגירה ידנית לצורכי בדיקה. בסגירה תחושב ותפורסם הרשימה הסופית.</p>
+          <button type="button" className={registrationOpen ? 'reject-button' : 'approve-button'} onClick={() => void setManualSignupOpen(!registrationOpen)} disabled={busy}>{registrationOpen ? 'סגירת הרשמה' : 'פתיחת הרשמה'}</button>
+        </div>
         <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
           {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
         </div>
