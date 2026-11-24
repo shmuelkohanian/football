@@ -5,13 +5,24 @@ import { supabase } from '../lib/supabase'
 type Player = { id: string; first: string; last: string; attended: number; late: number; missed: number; registered: boolean; selectionRank?: number | null; signupTime?: string }
 type Profile = { id: string; first_name: string; last_name: string; status: 'pending' | 'approved' | 'rejected'; role: 'player' | 'manager' }
 type AttendanceStatus = 'attended' | 'late' | 'no_show' | 'excused'
-type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string; attendanceStatus: AttendanceStatus | null }> }
+type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string; attendanceStatus: AttendanceStatus | null; goalsInput: string; assistsInput: string }> }
+type LeaderboardRow = { player_id: string; first_name: string; last_name: string; total: number; place: number }
+type LeaderboardSnapshot = { previous_ready: boolean; current_month: string; previous_month: string; current_goals: LeaderboardRow[]; current_assists: LeaderboardRow[]; previous_goals: LeaderboardRow[]; previous_assists: LeaderboardRow[] }
+
+function isValidStatInput(value: string) {
+  return value === '' || (/^\d+$/.test(value) && Number(value) <= 14)
+}
 
 function formatWeekDate(week: string | null, offsetDays = 0) {
   if (!week) return ''
   const date = new Date(`${week}T12:00:00Z`)
   date.setUTCDate(date.getUTCDate() + offsetDays)
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(date)
+}
+
+function formatMonthLabel(month: string | undefined) {
+  if (!month) return 'טוען…'
+  return new Intl.DateTimeFormat('he-IL', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(new Date(`${month}T12:00:00Z`))
 }
 
 const initialPlayers: Player[] = [
@@ -49,6 +60,9 @@ function App() {
   const [pendingMembers, setPendingMembers] = useState<Profile[]>([])
   const [approvedMembers, setApprovedMembers] = useState<Profile[]>([])
   const [managerMatches, setManagerMatches] = useState<ManagerMatch[]>([])
+  const [showStats, setShowStats] = useState(false)
+  const [leaderboards, setLeaderboards] = useState<LeaderboardSnapshot | null>(null)
+  const [leaderboardsLoading, setLeaderboardsLoading] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
@@ -226,7 +240,7 @@ function App() {
       const matches = matchesResponse.data ?? []
       const ids = matches.map((match) => match.id)
       if (!ids.length) { setManagerMatches([]); return }
-      const { data: entries } = await supabase!.from('match_entries').select('match_id, player_id, result, selection_rank, attendance_status').in('match_id', ids).is('cancelled_at', null).not('selection_rank', 'is', null).order('selection_rank')
+      const { data: entries } = await supabase!.from('match_entries').select('match_id, player_id, result, selection_rank, attendance_status, goals, assists').in('match_id', ids).is('cancelled_at', null).not('selection_rank', 'is', null).order('selection_rank')
       const playerIds = [...new Set((entries ?? []).map((entry) => entry.player_id))]
       const { data: names } = playerIds.length
         ? await supabase!.from('profiles').select('id, first_name, last_name').in('id', playerIds)
@@ -241,13 +255,29 @@ function App() {
           const name = nameMap.get(entry.player_id)
           const savedStatus = entry.attendance_status as AttendanceStatus | null
           const legacyStatus = entry.result === 'attended' || entry.result === 'no_show' ? entry.result as AttendanceStatus : null
-          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, late: 0, missed: 0, registered: true, result: entry.result, attendanceStatus: savedStatus ?? legacyStatus }] : []
+          return name ? [{ id: entry.player_id, first: name.first_name, last: name.last_name, attended: 0, late: 0, missed: 0, registered: true, result: entry.result, attendanceStatus: savedStatus ?? legacyStatus, goalsInput: String(entry.goals ?? 0), assistsInput: String(entry.assists ?? 0) }] : []
         }),
       })))
     }
     void loadManagerBoard()
     return () => { active = false }
   }, [showManager, profile, refreshKey, signupCapacity, nextSignupBoundary.isOpen])
+
+  useEffect(() => {
+    if (!showStats || !supabase || profile?.status !== 'approved') return
+    let active = true
+    setLeaderboardsLoading(true)
+    supabase.rpc('get_personal_leaderboards').then(({ data, error }) => {
+      if (!active) return
+      setLeaderboardsLoading(false)
+      if (error) {
+        setNotice('לא הצלחנו לטעון את הסטטיסטיקות האישיות כרגע.')
+        return
+      }
+      setLeaderboards(data as LeaderboardSnapshot | null)
+    })
+    return () => { active = false }
+  }, [showStats, profile, refreshKey])
 
   function openAuth(mode: 'join' | 'login') {
     setAuthMode(mode)
@@ -339,12 +369,23 @@ function App() {
       : match))
   }
 
+  function markAttendanceStat(matchId: string, playerId: string, field: 'goalsInput' | 'assistsInput', value: string) {
+    setManagerMatches((current) => current.map((match) => match.id === matchId
+      ? { ...match, players: match.players.map((player) => player.id === playerId ? { ...player, [field]: value } : player) }
+      : match))
+  }
+
   async function saveAttendance(match: ManagerMatch) {
-    if (!supabase || match.players.length === 0 || match.players.some((player) => player.attendanceStatus === null)) return
+    if (!supabase || match.players.length === 0 || match.players.some((player) => player.attendanceStatus === null || ((player.attendanceStatus === 'attended' || player.attendanceStatus === 'late') && (!isValidStatInput(player.goalsInput) || !isValidStatInput(player.assistsInput))))) return
     setBusy(true)
     const { error } = await supabase.rpc('save_match_attendance', {
       p_match_id: match.id,
-      p_attendance: match.players.map((player) => ({ player_id: player.id, status: player.attendanceStatus })),
+      p_attendance: match.players.map((player) => ({
+        player_id: player.id,
+        status: player.attendanceStatus,
+        goals: player.attendanceStatus === 'attended' || player.attendanceStatus === 'late' ? Number(player.goalsInput || 0) : 0,
+        assists: player.attendanceStatus === 'attended' || player.attendanceStatus === 'late' ? Number(player.assistsInput || 0) : 0,
+      })),
     })
     setBusy(false)
     if (error) setNotice('לא הצלחנו לשמור את הנוכחות. נסו שוב.')
@@ -354,6 +395,14 @@ function App() {
   const userIsRegistered = live ? Boolean(user && registered) : registered
   const displayedPlayerCount = registrationOpen ? registeredCount : selectedPlayers.length
   const canSignUp = !live || (user !== null && profile?.status === 'approved' && registrationOpen)
+  const attendanceValid = (match: ManagerMatch) => match.players.length > 0 && match.players.every((player) =>
+    player.attendanceStatus !== null && ((player.attendanceStatus !== 'attended' && player.attendanceStatus !== 'late') || (isValidStatInput(player.goalsInput) && isValidStatInput(player.assistsInput))))
+  const renderLeaderboard = (title: string, rows: LeaderboardRow[], metric: 'goals' | 'assists') => (
+    <section className="personal-stats-card">
+      <div className="personal-stats-card-heading"><span className="personal-stats-icon">{metric === 'goals' ? '⚽' : '✦'}</span><h3>{title}</h3></div>
+      {rows.length ? <ol className="personal-stats-list">{rows.map((row) => <li key={row.player_id}><span className="personal-stats-rank">{String(row.place).padStart(2, '0')}</span><strong>{row.first_name} {row.last_name}</strong><span className="personal-stats-total">{row.total} {metric === 'goals' ? 'שערים' : 'בישולים'}</span></li>)}</ol> : <p className="personal-stats-empty">עדיין אין נתונים להצגה.</p>}
+    </section>
+  )
 
   return (
     <main className="page-shell">
@@ -364,7 +413,8 @@ function App() {
           <span><strong>המשחק השבועי</strong><small>מועדון הכדורגל שלנו</small></span>
         </a>
         <div className="top-actions">
-          {profile?.role === 'manager' && profile.status === 'approved' && <button className="button button-quiet manager-toggle" onClick={() => setShowManager((open) => !open)}>{showManager ? 'עמוד ההרשמה' : 'לוח מנהל'}</button>}
+          {profile?.status === 'approved' && <button className="button button-quiet stats-toggle" onClick={() => { setShowStats((open) => !open); setShowManager(false) }}>{showStats ? 'עמוד ההרשמה' : 'סטטיסטיקות אישיות'}</button>}
+          {profile?.role === 'manager' && profile.status === 'approved' && <button className="button button-quiet manager-toggle" onClick={() => { setShowManager((open) => !open); setShowStats(false) }}>{showManager ? 'עמוד ההרשמה' : 'לוח מנהל'}</button>}
           {user ? <button className="button button-quiet desktop-join" onClick={signOut}>התנתקות</button> : <>
             <button className="button button-quiet desktop-join" onClick={() => openAuth('login')}>התחברות</button>
             <button className="button button-quiet desktop-join" onClick={() => openAuth('join')}>הצטרפות למועדון</button>
@@ -378,7 +428,7 @@ function App() {
         </div>
       </header>
 
-      {!showManager && <>
+      {!showManager && !showStats && <>
         <section className="hero" id="home">
           <div className="hero-copy">
             <div className="eyebrow"><span className="live-dot" /> {registrationOpen ? 'ההרשמה פתוחה עכשיו' : 'ההרשמה השבועית נסגרה'}</div>
@@ -431,6 +481,15 @@ function App() {
         </section>
       </>}
 
+      {showStats && <section className="personal-stats-panel">
+        <span className="section-kicker">המספרים של המועדון</span><h2>סטטיסטיקות אישיות</h2>
+        <p className="personal-stats-intro">הטבלאות מתעדכנות לאחר שמנהל שומר את עדכון הנוכחות של מפגש.</p>
+        <div className="personal-stats-period"><span>החודש הקודם</span><h3>{formatMonthLabel(leaderboards?.previous_month)}</h3></div>
+        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboards?.previous_ready ? <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.previous_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.previous_assists, 'assists')}</div> : <p className="personal-stats-release-note">טבלת החודש הקודם תוצג לאחר שמירת עדכון הנוכחות של המפגש האחרון באותו חודש.</p>}
+        <div className="personal-stats-period personal-stats-period-current"><span>החודש הנוכחי</span><h3>{formatMonthLabel(leaderboards?.current_month)}</h3></div>
+        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboards && <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.current_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.current_assists, 'assists')}</div>}
+      </section>}
+
       {showManager && <section className="manager-panel">
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
         <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
@@ -444,15 +503,27 @@ function App() {
         </div>
         <div className="manager-section manager-section-attendance"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים סגורים שממתינים לסימון ולשמירה</span></div>
           {managerMatches.some((match) => match.status === 'selected') ? managerMatches.filter((match) => match.status === 'selected').map((match) => {
-            const allMarked = match.players.length > 0 && match.players.every((player) => player.attendanceStatus !== null)
+            const allMarked = attendanceValid(match)
             return <div className="attendance-match" key={match.id}><h4>{formatWeekDate(match.week_start)} · הנוכחות טרם נשמרה</h4>
               {match.players.length ? <>
-                {match.players.map((player) => <div className="manager-row attendance-row" key={player.id}><strong>{player.first} {player.last}</strong><div className="attendance-actions">
-                  <button type="button" className={player.attendanceStatus === 'attended' ? 'attendance-choice attendance-attended attendance-active' : 'attendance-choice attendance-attended'} onClick={() => markAttendance(match.id, player.id, 'attended')} disabled={busy} aria-pressed={player.attendanceStatus === 'attended'}>הגיע</button>
-                  <button type="button" className={player.attendanceStatus === 'late' ? 'attendance-choice attendance-late attendance-active' : 'attendance-choice attendance-late'} onClick={() => markAttendance(match.id, player.id, 'late')} disabled={busy} aria-pressed={player.attendanceStatus === 'late'}>איחר</button>
-                  <button type="button" className={player.attendanceStatus === 'no_show' ? 'attendance-choice attendance-no-show attendance-active' : 'attendance-choice attendance-no-show'} onClick={() => markAttendance(match.id, player.id, 'no_show')} disabled={busy} aria-pressed={player.attendanceStatus === 'no_show'}>הבריז</button>
-                  <button type="button" className={player.attendanceStatus === 'excused' ? 'attendance-choice attendance-excused attendance-active' : 'attendance-choice attendance-excused'} onClick={() => markAttendance(match.id, player.id, 'excused')} disabled={busy} aria-pressed={player.attendanceStatus === 'excused'}>חיסור מוצדק</button>
-                </div></div>)}
+                {match.players.map((player) => {
+                  const statsVisible = player.attendanceStatus === 'attended' || player.attendanceStatus === 'late'
+                  const goalsInvalid = statsVisible && !isValidStatInput(player.goalsInput)
+                  const assistsInvalid = statsVisible && !isValidStatInput(player.assistsInput)
+                  return <div className="attendance-player" key={player.id}>
+                    <div className="manager-row attendance-row"><strong>{player.first} {player.last}</strong><div className="attendance-actions">
+                      <button type="button" className={player.attendanceStatus === 'attended' ? 'attendance-choice attendance-attended attendance-active' : 'attendance-choice attendance-attended'} onClick={() => markAttendance(match.id, player.id, 'attended')} disabled={busy} aria-pressed={player.attendanceStatus === 'attended'}>הגיע</button>
+                      <button type="button" className={player.attendanceStatus === 'late' ? 'attendance-choice attendance-late attendance-active' : 'attendance-choice attendance-late'} onClick={() => markAttendance(match.id, player.id, 'late')} disabled={busy} aria-pressed={player.attendanceStatus === 'late'}>איחר</button>
+                      <button type="button" className={player.attendanceStatus === 'no_show' ? 'attendance-choice attendance-no-show attendance-active' : 'attendance-choice attendance-no-show'} onClick={() => markAttendance(match.id, player.id, 'no_show')} disabled={busy} aria-pressed={player.attendanceStatus === 'no_show'}>הבריז</button>
+                      <button type="button" className={player.attendanceStatus === 'excused' ? 'attendance-choice attendance-excused attendance-active' : 'attendance-choice attendance-excused'} onClick={() => markAttendance(match.id, player.id, 'excused')} disabled={busy} aria-pressed={player.attendanceStatus === 'excused'}>חיסור מוצדק</button>
+                    </div></div>
+                    {statsVisible && <div className="attendance-stats-row">
+                      <span className="attendance-stats-caption">נתוני המשחק</span>
+                      <label className={goalsInvalid ? 'attendance-stat-field attendance-stat-invalid' : 'attendance-stat-field'}><span>שערים</span><input type="number" inputMode="numeric" min="0" max="14" step="1" value={player.goalsInput} onFocus={(event) => { if (event.currentTarget.value === '0') markAttendanceStat(match.id, player.id, 'goalsInput', '') }} onChange={(event) => markAttendanceStat(match.id, player.id, 'goalsInput', event.currentTarget.value)} disabled={busy} aria-label={`שערים של ${player.first} ${player.last}`} aria-invalid={goalsInvalid} /><small>{goalsInvalid ? 'יש להזין מספר שלם בין 0 ל־14' : '0–14'}</small></label>
+                      <label className={assistsInvalid ? 'attendance-stat-field attendance-stat-invalid' : 'attendance-stat-field'}><span>בישולים</span><input type="number" inputMode="numeric" min="0" max="14" step="1" value={player.assistsInput} onFocus={(event) => { if (event.currentTarget.value === '0') markAttendanceStat(match.id, player.id, 'assistsInput', '') }} onChange={(event) => markAttendanceStat(match.id, player.id, 'assistsInput', event.currentTarget.value)} disabled={busy} aria-label={`בישולים של ${player.first} ${player.last}`} aria-invalid={assistsInvalid} /><small>{assistsInvalid ? 'יש להזין מספר שלם בין 0 ל־14' : '0–14'}</small></label>
+                    </div>}
+                  </div>
+                })}
                 <button type="button" className="approve-button attendance-save" onClick={() => void saveAttendance(match)} disabled={!allMarked || busy}>שמור נוכחות</button>
               </> : <p className="empty-list">לא נמצאו נרשמים למשחק הזה.</p>}
             </div>
