@@ -7,7 +7,7 @@ type Profile = { id: string; first_name: string; last_name: string; status: 'pen
 type AttendanceStatus = 'attended' | 'late' | 'no_show' | 'excused'
 type ManagerMatch = { id: string; week_start: string; status: string; players: Array<Player & { result: string; attendanceStatus: AttendanceStatus | null; goalsInput: string; assistsInput: string }> }
 type LeaderboardRow = { player_id: string; first_name: string; last_name: string; total: number; place: number }
-type LeaderboardSnapshot = { previous_ready: boolean; current_month: string; previous_month: string; current_goals: LeaderboardRow[]; current_assists: LeaderboardRow[]; previous_goals: LeaderboardRow[]; previous_assists: LeaderboardRow[] }
+type LeaderboardSnapshot = { previous_ready: boolean; previous_has_data: boolean; current_has_data: boolean; current_month: string; previous_month: string; current_goals: LeaderboardRow[]; current_assists: LeaderboardRow[]; previous_goals: LeaderboardRow[]; previous_assists: LeaderboardRow[] }
 
 function isValidStatInput(value: string) {
   return value === '' || (/^\d+$/.test(value) && Number(value) <= 14)
@@ -23,6 +23,14 @@ function formatWeekDate(week: string | null, offsetDays = 0) {
 function formatMonthLabel(month: string | undefined) {
   if (!month) return 'טוען…'
   return new Intl.DateTimeFormat('he-IL', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(new Date(`${month}T12:00:00Z`))
+}
+
+function formatRelativeMonthLabel(now: Date, offset: number) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit' }).formatToParts(now)
+  const year = Number(parts.find((part) => part.type === 'year')?.value)
+  const month = Number(parts.find((part) => part.type === 'month')?.value)
+  const date = new Date(Date.UTC(year, month - 1 + offset, 1, 12))
+  return formatMonthLabel(date.toISOString().slice(0, 10))
 }
 
 const initialPlayers: Player[] = [
@@ -63,6 +71,7 @@ function App() {
   const [showStats, setShowStats] = useState(false)
   const [leaderboards, setLeaderboards] = useState<LeaderboardSnapshot | null>(null)
   const [leaderboardsLoading, setLeaderboardsLoading] = useState(false)
+  const [leaderboardsError, setLeaderboardsError] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const registeredCount = useMemo(() => players.filter((player) => player.registered).length, [players])
@@ -266,17 +275,31 @@ function App() {
   useEffect(() => {
     if (!showStats || !supabase || profile?.status !== 'approved') return
     let active = true
+    setLeaderboards(null)
+    setLeaderboardsError(false)
     setLeaderboardsLoading(true)
-    supabase.rpc('get_personal_leaderboards').then(({ data, error }) => {
-      if (!active) return
-      setLeaderboardsLoading(false)
-      if (error) {
-        setNotice('לא הצלחנו לטעון את הסטטיסטיקות האישיות כרגע.')
-        return
+    let timedOut = false
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true
+      if (active) {
+        setLeaderboardsError(true)
+        setLeaderboardsLoading(false)
       }
-      setLeaderboards(data as LeaderboardSnapshot | null)
-    })
-    return () => { active = false }
+    }, 12_000)
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_personal_leaderboards')
+        if (!active || timedOut) return
+        if (error) throw error
+        setLeaderboards(data as LeaderboardSnapshot | null)
+      } catch {
+        if (active && !timedOut) setLeaderboardsError(true)
+      } finally {
+        window.clearTimeout(timeoutId)
+        if (active && !timedOut) setLeaderboardsLoading(false)
+      }
+    })()
+    return () => { active = false; window.clearTimeout(timeoutId) }
   }, [showStats, profile, refreshKey])
 
   function openAuth(mode: 'join' | 'login') {
@@ -484,10 +507,10 @@ function App() {
       {showStats && <section className="personal-stats-panel">
         <span className="section-kicker">המספרים של המועדון</span><h2>סטטיסטיקות אישיות</h2>
         <p className="personal-stats-intro">הטבלאות מתעדכנות לאחר שמנהל שומר את עדכון הנוכחות של מפגש.</p>
-        <div className="personal-stats-period"><span>החודש הקודם</span><h3>{formatMonthLabel(leaderboards?.previous_month)}</h3></div>
-        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboards?.previous_ready ? <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.previous_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.previous_assists, 'assists')}</div> : <p className="personal-stats-release-note">טבלת החודש הקודם תוצג לאחר שמירת עדכון הנוכחות של המפגש האחרון באותו חודש.</p>}
-        <div className="personal-stats-period personal-stats-period-current"><span>החודש הנוכחי</span><h3>{formatMonthLabel(leaderboards?.current_month)}</h3></div>
-        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboards && <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.current_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.current_assists, 'assists')}</div>}
+        <div className="personal-stats-period"><span>החודש הקודם</span><h3>{leaderboards ? formatMonthLabel(leaderboards.previous_month) : formatRelativeMonthLabel(now, -1)}</h3></div>
+        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboardsError ? <p className="personal-stats-empty">לא הצלחנו לטעון את הנתונים. נסו לפתוח את העמוד מחדש.</p> : leaderboards?.previous_ready && leaderboards.previous_has_data ? <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.previous_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.previous_assists, 'assists')}</div> : <p className="personal-stats-empty">עדיין אין נתונים.</p>}
+        <div className="personal-stats-period personal-stats-period-current"><span>החודש הנוכחי</span><h3>{leaderboards ? formatMonthLabel(leaderboards.current_month) : formatRelativeMonthLabel(now, 0)}</h3></div>
+        {leaderboardsLoading ? <p className="personal-stats-empty">טוען את טבלאות המובילים…</p> : leaderboardsError ? <p className="personal-stats-empty">לא הצלחנו לטעון את הנתונים. נסו לפתוח את העמוד מחדש.</p> : leaderboards?.current_has_data ? <div className="personal-stats-grid">{renderLeaderboard('מלך השערים', leaderboards.current_goals, 'goals')}{renderLeaderboard('מלך הבישולים', leaderboards.current_assists, 'assists')}</div> : <p className="personal-stats-empty">עדיין אין נתונים.</p>}
       </section>}
 
       {showManager && <section className="manager-panel">
