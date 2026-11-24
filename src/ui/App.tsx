@@ -515,15 +515,6 @@ function App() {
 
       {showManager && <section className="manager-panel">
         <span className="section-kicker">ניהול המועדון</span><h2>לוח מנהל</h2>
-        <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
-          {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
-        </div>
-        <div className="manager-section manager-section-approved"><div className="list-heading"><h3>משתמשים מאושרים</h3><span>{approvedMembers.length} משתמשים</span></div>
-          {approvedMembers.length ? approvedMembers.map((member) => {
-            const canAddAbsence = !registrationOpen && latestClosedMatch?.players.some((player) => player.id === member.id && (player.result === 'selected' || player.result === 'attended'))
-            return <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-member-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{(member.id !== user?.id || canAddAbsence) && <div className="manager-member-menu"><button type="button" className="manager-member-menu-trigger" aria-label={`אפשרויות עבור ${member.first_name} ${member.last_name}`} aria-haspopup="menu" aria-expanded={openMemberMenuId === member.id} onClick={() => setOpenMemberMenuId((openId) => openId === member.id ? null : member.id)}>⋮</button>{openMemberMenuId === member.id && <div className="manager-member-menu-panel" role="menu">{member.id !== user?.id && (member.role === 'player' ? <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'manager')}>הפוך למנהל</button> : <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'player')}>הסר הרשאת מנהל</button>)}{canAddAbsence && <button type="button" role="menuitem" onClick={() => void addAbsence(member)}>הוסף היעדרות</button>}{member.id !== user?.id && <button type="button" role="menuitem" className="danger-menu-item" onClick={() => void revokeApproval(member)}>הסר משתמש</button>}</div>}</div>}</div></div>
-          }) : <p className="empty-list">אין משתמשים מאושרים.</p>}
-        </div>
         <div className="manager-section manager-section-attendance"><div className="list-heading"><h3>עדכון נוכחות</h3><span>משחקים סגורים שממתינים לסימון ולשמירה</span></div>
           {managerMatches.some((match) => match.status === 'selected') ? managerMatches.filter((match) => match.status === 'selected').map((match) => {
             const allMarked = attendanceValid(match)
@@ -552,6 +543,16 @@ function App() {
             </div>
           }) : <p className="empty-list">אין משחקים שממתינים לעדכון נוכחות.</p>}
         </div>
+        <div className="manager-section manager-section-pending"><div className="list-heading"><h3>בקשות הצטרפות ממתינות</h3><span>{pendingMembers.length} בקשות</span></div>
+          {pendingMembers.length ? pendingMembers.map((member) => <div className="manager-row" key={member.id}><div><strong>{member.first_name} {member.last_name}</strong><small>נרשם במתנ״ס</small></div><div className="manager-actions"><button className="approve-button" onClick={() => approveMember(member.id, true)}>אישור</button><button className="reject-button" onClick={() => approveMember(member.id, false)}>דחייה</button></div></div>) : <p className="empty-list">אין בקשות שממתינות לאישור.</p>}
+        </div>
+        <div className="manager-section manager-section-approved"><div className="list-heading"><h3>משתמשים מאושרים</h3><span>{approvedMembers.length} משתמשים</span></div>
+          {approvedMembers.length ? approvedMembers.map((member) => {
+            const canAddAbsence = !registrationOpen && latestClosedMatch?.players.some((player) => player.id === member.id && (player.result === 'selected' || player.result === 'attended'))
+            return <div className="manager-row" key={member.id}><strong>{member.first_name} {member.last_name}</strong><div className="manager-member-actions">{member.role === 'manager' && <span className="manager-role-badge">מנהל</span>}{(member.id !== user?.id || canAddAbsence) && <div className="manager-member-menu"><button type="button" className="manager-member-menu-trigger" aria-label={`אפשרויות עבור ${member.first_name} ${member.last_name}`} aria-haspopup="menu" aria-expanded={openMemberMenuId === member.id} onClick={() => setOpenMemberMenuId((openId) => openId === member.id ? null : member.id)}>⋮</button>{openMemberMenuId === member.id && <div className="manager-member-menu-panel" role="menu">{member.id !== user?.id && (member.role === 'player' ? <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'manager')}>הפוך למנהל</button> : <button type="button" role="menuitem" onClick={() => void changeMemberRole(member, 'player')}>הסר הרשאת מנהל</button>)}{canAddAbsence && <button type="button" role="menuitem" onClick={() => void addAbsence(member)}>הוסף היעדרות</button>}{member.id !== user?.id && <button type="button" role="menuitem" className="danger-menu-item" onClick={() => void revokeApproval(member)}>הסר משתמש</button>}</div>}</div>}</div></div>
+          }) : <p className="empty-list">אין משתמשים מאושרים.</p>}
+        </div>
+
       </section>}
 
       {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="סגירה" onClick={() => setNotice('')}>×</button></div>}
