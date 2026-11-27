@@ -64,5 +64,5 @@
   .personal-stats-total{font-size:11px}
 }
 
-.copy-roster-button{display:block;margin:18px 0 0 auto;padding:10px 16px;border:1px solid #b9cbb1;border-radius:6px;background:#e5eddf;color:#36563b;font-size:13px;font-weight:600;transition:background .15s,transform .15s}.copy-roster-button:hover{background:#d9e8d0;transform:translateY(-1px)}.copy-roster-button:focus-visible{outline:3px solid rgba(74,119,70,.35);outline-offset:2px}
-@media(max-width:760px){.copy-roster-button{width:100%;min-height:44px;margin-top:16px}}
+.copy-roster-button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;margin:0;padding:9px 14px;border:1px solid #b9cbb1;border-radius:6px;background:#e5eddf;color:#36563b;font-size:12px;font-weight:600;white-space:nowrap;transition:background .15s,transform .15s}.copy-roster-button:hover{background:#d9e8d0;transform:translateY(-1px)}.copy-roster-button:focus-visible{outline:3px solid rgba(74,119,70,.35);outline-offset:2px}
+@media(max-width:760px){.hero-actions{gap:10px;flex-wrap:wrap}.copy-roster-button{padding-inline:11px;font-size:11px}}
