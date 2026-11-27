@@ -418,6 +418,40 @@ function App() {
   const userIsRegistered = live ? Boolean(user && registered) : registered
   const displayedPlayerCount = registrationOpen ? registeredCount : selectedPlayers.length
   const canSignUp = !live || (user !== null && profile?.status === 'approved' && registrationOpen)
+  async function copyWeeklyLineup() {
+    const rankedClosedPlayers = [...players].filter((player) => player.selectionRank != null).sort((a, b) => a.selectionRank! - b.selectionRank!)
+    const selected = rankedClosedPlayers.filter((player) => player.selectionRank! <= signupCapacity)
+    const sixteenth = rankedClosedPlayers.find((player) => player.selectionRank! === signupCapacity + 1)
+    const waiting = rankedClosedPlayers.filter((player) => player.selectionRank! > signupCapacity + 1)
+    const numberedNames = (items: Player[]) => items.map((player, index) => `${index + 1}. ${player.first} ${player.last}`)
+    const lines = [
+      '*ההרכב שנבחר:*',
+      ...numberedNames(selected),
+      '',
+      '*שחקן 16:*',
+      sixteenth ? `${sixteenth.first} ${sixteenth.last}` : '—',
+      '',
+      '*רשימת המתנה:*',
+      ...(waiting.length ? numberedNames(waiting) : ['—']),
+    ].join('\n')
+    try {
+      await navigator.clipboard.writeText(lines)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = lines
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.append(textarea)
+      textarea.select()
+      const copied = document.execCommand('copy')
+      textarea.remove()
+      if (!copied) {
+        setNotice('לא הצלחנו להעתיק את ההרכב.')
+        return
+      }
+    }
+    setNotice('ההרכב השבועי הועתק.')
+  }
   const attendanceValid = (match: ManagerMatch) => match.players.length > 0 && match.players.every((player) =>
     player.attendanceStatus !== null && ((player.attendanceStatus !== 'attended' && player.attendanceStatus !== 'late') || (isValidStatInput(player.goalsInput) && isValidStatInput(player.assistsInput))))
   const renderLeaderboard = (title: string, rows: LeaderboardRow[], metric: 'goals' | 'assists') => (
@@ -483,6 +517,7 @@ function App() {
             <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : `ההרכב השבועי ${formatWeekDate(rosterWeek, 1)}`}</h2></div>
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">{signupCapacity}<br />מקומות בהרכב</span></div>
           </div>
+          {!registrationOpen && selectedPlayers.length > 0 && <button type="button" className="copy-roster-button" onClick={() => void copyWeeklyLineup()}>העתק הרכב שבועי</button>}
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / signupCapacity * 100)}%` }} /></div>
           <div className="list-heading"><h3>{registrationOpen ? 'העדיפות כרגע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'דירוג לפי היסטוריית הגעה והיעדרות · שוויון יוכרע בהגרלה בסגירה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
           <div className="player-list">
