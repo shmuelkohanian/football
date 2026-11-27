@@ -429,10 +429,10 @@ function App() {
       ...numberedNames(selected),
       '',
       '*שחקן 16:*',
-      sixteenth ? `${sixteenth.first} ${sixteenth.last}` : '—',
+      sixteenth ? `${sixteenth.first} ${sixteenth.last}` : 'אין',
       '',
       '*רשימת המתנה:*',
-      ...(waiting.length ? numberedNames(waiting) : ['—']),
+      ...(waiting.length ? numberedNames(waiting) : ['אין']),
     ].join('\n')
     try {
       await navigator.clipboard.writeText(lines)
