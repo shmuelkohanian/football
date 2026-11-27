@@ -471,10 +471,9 @@ function App() {
           </div>
           <div className="hero-art hero-video-frame" role="group" aria-label="קטע משחק כדורגל">
             <video className="hero-video" autoPlay muted loop playsInline preload="metadata" aria-label="שחקנים מכדררים ומנסים להבקיע במשחק כדורגל">
-              <source src="https://videos.pexels.com/video-files/15448993/15448993-hd_1920_1080_60fps.mp4" type="video/mp4" />
+              <source src="/football-highlights.mp4" type="video/mp4" />
             </video>
             <div className="hero-video-shade" aria-hidden="true" />
-            <a className="video-credit" href="https://www.pexels.com/video/football-players-kicking-the-ball-during-a-match-15448993/" target="_blank" rel="noreferrer">וידאו: Luis Quintero / Pexels</a>
             <div className="art-caption"><span>01 / 08</span><span>שומרים על המסורת</span></div>
           </div>
         </section>
