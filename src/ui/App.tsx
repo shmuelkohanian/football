@@ -469,8 +469,14 @@ function App() {
             </div>
             {(profile?.status === 'pending' || registrationOpen) && <p className="timezone-note">{profile?.status === 'pending' ? 'לאחר האישור תוכל להירשם למשחק השבועי.' : 'אפשר להירשם או לבטל עד סגירת ההרשמה'}</p>}
           </div>
-          <div className="hero-art" role="img" aria-label="מגרש כדורגל ירוק בשעת ערב">
-            <div className="art-glow" /><div className="field-lines"><span /><span /><span /></div><div className="ball">⚽</div>
+          <div className="hero-art hero-action" role="img" aria-label="הנפשת מהלך כדורגל: כדרור, מסירה ובעיטה לשער">
+            <div className="art-glow" /><div className="field-lines"><span /><span /><span /></div>
+            <div className="action-goal" aria-hidden="true"><i /><i /><i /></div>
+            <div className="action-player action-player-attacker" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
+            <div className="action-player action-player-defender" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
+            <div className="action-player action-player-teammate" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
+            <div className="action-ball" aria-hidden="true">⚽</div>
+            <div className="action-trail" aria-hidden="true" />
             <div className="art-caption"><span>01 / 08</span><span>שומרים על המסורת</span></div>
           </div>
         </section>
