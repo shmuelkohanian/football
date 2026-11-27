@@ -469,14 +469,12 @@ function App() {
             </div>
             {(profile?.status === 'pending' || registrationOpen) && <p className="timezone-note">{profile?.status === 'pending' ? 'לאחר האישור תוכל להירשם למשחק השבועי.' : 'אפשר להירשם או לבטל עד סגירת ההרשמה'}</p>}
           </div>
-          <div className="hero-art hero-action" role="img" aria-label="הנפשת מהלך כדורגל: כדרור, מסירה ובעיטה לשער">
-            <div className="art-glow" /><div className="field-lines"><span /><span /><span /></div>
-            <div className="action-goal" aria-hidden="true"><i /><i /><i /></div>
-            <div className="action-player action-player-attacker" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
-            <div className="action-player action-player-defender" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
-            <div className="action-player action-player-teammate" aria-hidden="true"><i className="player-head" /><i className="player-body" /><i className="player-leg player-leg-a" /><i className="player-leg player-leg-b" /></div>
-            <div className="action-ball" aria-hidden="true">⚽</div>
-            <div className="action-trail" aria-hidden="true" />
+          <div className="hero-art hero-video-frame" role="group" aria-label="קטע משחק כדורגל">
+            <video className="hero-video" autoPlay muted loop playsInline preload="metadata" aria-label="שחקנים מכדררים ומנסים להבקיע במשחק כדורגל">
+              <source src="https://videos.pexels.com/video-files/15448993/15448993-hd_1920_1080_60fps.mp4" type="video/mp4" />
+            </video>
+            <div className="hero-video-shade" aria-hidden="true" />
+            <a className="video-credit" href="https://www.pexels.com/video/football-players-kicking-the-ball-during-a-match-15448993/" target="_blank" rel="noreferrer">וידאו: Luis Quintero / Pexels</a>
             <div className="art-caption"><span>01 / 08</span><span>שומרים על המסורת</span></div>
           </div>
         </section>
