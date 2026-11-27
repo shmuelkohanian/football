@@ -47,6 +47,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [players, setPlayers] = useState(initialPlayers)
+  const [rosterFinalized, setRosterFinalized] = useState(false)
   const [registered, setRegistered] = useState(true)
   const [registrationOpen, setRegistrationOpen] = useState(true)
   const [signupCapacity, setSignupCapacity] = useState(FALLBACK_SIGNUP_CAPACITY)
@@ -165,6 +166,7 @@ function App() {
     if (!user) {
       setPlayers([])
       setRegistered(false)
+      setRosterFinalized(false)
       return
     }
     let active = true
@@ -185,6 +187,7 @@ function App() {
       if (matchError || !match) {
         setPlayers([])
         setRegistered(false)
+        setRosterFinalized(false)
         return
       }
       const { data: entries, error: entriesError } = await supabase!.from('match_entries')
@@ -193,6 +196,7 @@ function App() {
       if (entriesError || !entries) return
       setRegistered(entries.some((entry) => entry.player_id === user!.id))
       const selectionComplete = match.status !== 'signup'
+      setRosterFinalized(match.status === 'selected' || match.status === 'completed')
       const visibleEntries = openWeek ? entries : selectionComplete ? entries : []
       const ids = visibleEntries.map((entry) => entry.player_id)
       if (!ids.length) {
@@ -500,6 +504,7 @@ function App() {
                 {busy ? 'שומרים…' : live && !user ? 'התחברות להרשמה' : live && profile?.status === 'pending' ? 'ממתין לאישור מנהל' : live && profile?.status === 'rejected' ? 'הבקשה נדחתה' : live && !registrationOpen ? 'ההרשמה נסגרה' : userIsRegistered ? '✓  נרשמת למשחק' : 'הרשמה למשחק'}
               </button>
               {userIsRegistered && registrationOpen && <button className="text-button" onClick={toggleSignup}>ביטול הרשמה</button>}
+              {!registrationOpen && rosterFinalized && profile?.status === 'approved' && profile.role === 'manager' && selectedPlayers.length > 0 && <button type="button" className="copy-roster-button" onClick={() => void copyWeeklyLineup()}>העתק הרכב שבועי</button>}
             </div>
             {(profile?.status === 'pending' || registrationOpen) && <p className="timezone-note">{profile?.status === 'pending' ? 'לאחר האישור תוכל להירשם למשחק השבועי.' : 'אפשר להירשם או לבטל עד סגירת ההרשמה'}</p>}
           </div>
@@ -517,7 +522,6 @@ function App() {
             <div><span className="section-kicker">ההרשמה השבועית</span><h2>{registrationOpen ? 'מי עולה למגרש?' : `ההרכב השבועי ${formatWeekDate(rosterWeek, 1)}`}</h2></div>
             <div className="spots"><strong>{String(displayedPlayerCount).padStart(2, '0')}</strong><span>{registrationOpen ? 'נרשמו' : 'נבחרו'}<br />עד עכשיו</span><i /> <span className="spots-total">{signupCapacity}<br />מקומות בהרכב</span></div>
           </div>
-          {!registrationOpen && selectedPlayers.length > 0 && <button type="button" className="copy-roster-button" onClick={() => void copyWeeklyLineup()}>העתק הרכב שבועי</button>}
           <div className="progress-track"><span style={{ width: `${Math.min(100, displayedPlayerCount / signupCapacity * 100)}%` }} /></div>
           <div className="list-heading"><h3>{registrationOpen ? 'העדיפות כרגע' : 'ההרכב שנבחר'}</h3><span>{registrationOpen ? 'דירוג לפי היסטוריית הגעה והיעדרות · שוויון יוכרע בהגרלה בסגירה' : 'ההרכב והמשך רשימת הנרשמים'}</span></div>
           <div className="player-list">
